@@ -2,7 +2,8 @@ use std::{error::Error, fmt};
 
 use smithay_client_toolkit::{
     compositor::{CompositorHandler, CompositorState},
-    delegate_compositor, delegate_layer, delegate_output, delegate_registry, delegate_shm,
+    delegate_compositor, delegate_layer, delegate_output, delegate_pointer, delegate_registry,
+    delegate_seat, delegate_shm,
     output::{OutputHandler, OutputState},
     reexports::{
         calloop::{EventLoop, channel as calloop_channel, channel::Event as ChannelEvent},
@@ -10,11 +11,18 @@ use smithay_client_toolkit::{
         client::{
             Connection, QueueHandle,
             globals::registry_queue_init,
-            protocol::{wl_output, wl_shm, wl_surface},
+            protocol::{wl_output, wl_pointer, wl_seat, wl_shm, wl_surface},
         },
     },
     registry::{ProvidesRegistryState, RegistryState},
     registry_handlers,
+    seat::{
+        Capability, SeatHandler, SeatState,
+        pointer::{
+            PointerEvent as SctkPointerEvent, PointerEventKind as SctkPointerEventKind,
+            PointerHandler,
+        },
+    },
     shell::{
         WaylandSurface,
         wlr_layer::{

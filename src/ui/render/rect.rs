@@ -248,7 +248,7 @@ impl Rect {
         let options = self.layer_options.clone();
         options.show(UiRenderer {
             root: self,
-            fonts: FontCtx::new(),
+            fonts: LazyFontCtx::new(),
         })
     }
 
@@ -257,7 +257,7 @@ impl Rect {
         options.show_with_commands(
             UiRenderer {
                 root: self,
-                fonts: FontCtx::new(),
+                fonts: LazyFontCtx::new(),
             },
             receiver,
         )
@@ -299,6 +299,64 @@ impl Rect {
         let measured = measure_element(self, fonts, available_width, available_height);
         fonts.trim_scratch();
         measured.into()
+    }
+
+    pub fn hit_test(&self, bounds: Bounds, x: f64, y: f64) -> Option<Hit> {
+        let mut fonts = FontCtx::new();
+        self.hit_test_with_fonts(bounds, x, y, &mut fonts)
+    }
+
+    pub fn hit_test_with_fonts(
+        &self,
+        bounds: Bounds,
+        x: f64,
+        y: f64,
+        fonts: &mut FontCtx,
+    ) -> Option<Hit> {
+        let mut path = Vec::new();
+        self.hit_test_path_with_fonts(bounds, x, y, fonts, &mut path)
+            .map(|bounds| Hit { path, bounds })
+    }
+
+    pub fn hit_test_path(
+        &self,
+        bounds: Bounds,
+        x: f64,
+        y: f64,
+        path: &mut Vec<usize>,
+    ) -> Option<Bounds> {
+        let mut fonts = FontCtx::new();
+        self.hit_test_path_with_fonts(bounds, x, y, &mut fonts, path)
+    }
+
+    pub fn hit_test_path_with_fonts(
+        &self,
+        bounds: Bounds,
+        x: f64,
+        y: f64,
+        fonts: &mut FontCtx,
+        path: &mut Vec<usize>,
+    ) -> Option<Bounds> {
+        path.clear();
+        let Some((x, y)) = hit_point(x, y) else {
+            fonts.trim_scratch();
+            return None;
+        };
+
+        let mut current_path = Vec::new();
+        let bounds = Self::hit_test_layout(
+            self,
+            bounds,
+            Clip::rect(bounds),
+            None,
+            fonts,
+            x,
+            y,
+            &mut current_path,
+            path,
+        );
+        fonts.trim_scratch();
+        bounds
     }
 
     pub fn paint(&mut self, canvas: &mut Canvas<'_>) {
@@ -760,7 +818,7 @@ impl Rect {
             element,
             content_rect,
             fonts,
-            |child, rect, measured, fonts| {
+            |_, child, rect, measured, fonts| {
                 Self::visit_layout(
                     child,
                     rect,
@@ -773,4 +831,99 @@ impl Rect {
             },
         );
     }
+
+    #[allow(clippy::too_many_arguments)]
+    fn hit_test_layout(
+        element: &Rect,
+        bounds: Bounds,
+        clip: Clip,
+        premeasured: Option<Size>,
+        fonts: &mut FontCtx,
+        x: u32,
+        y: u32,
+        current_path: &mut Vec<usize>,
+        hit_path: &mut Vec<usize>,
+    ) -> Option<Bounds> {
+        let measured = if element_needs_measure(element) {
+            premeasured
+                .unwrap_or_else(|| measure_element(element, fonts, bounds.width, bounds.height))
+        } else {
+            Size::default()
+        };
+        let width = resolve_length(
+            element.width,
+            bounds.width,
+            measured.width,
+            element.min_width,
+            element.max_width,
+        );
+        let height = resolve_length(
+            element.height,
+            bounds.height,
+            measured.height,
+            element.min_height,
+            element.max_height,
+        );
+        let rect = Bounds {
+            x: bounds.x,
+            y: bounds.y,
+            width,
+            height,
+        };
+        let clip = clip.intersect_bounds(rect)?;
+        let content_rect = rect.inset(element.padding);
+        let child_clip = match element.overflow {
+            Overflow::Clip => clip.with_rounded_rect(content_rect, content_clip_radii(element))?,
+            Overflow::Visible => clip,
+        };
+
+        let mut hit = None;
+        layout_children(
+            element,
+            content_rect,
+            fonts,
+            |index, child, rect, measured, fonts| {
+                current_path.push(index);
+                if let Some(bounds) = Self::hit_test_layout(
+                    child,
+                    rect,
+                    child_clip,
+                    Some(measured),
+                    fonts,
+                    x,
+                    y,
+                    current_path,
+                    hit_path,
+                ) {
+                    hit = Some(bounds);
+                }
+                current_path.pop();
+            },
+        );
+
+        if let Some(bounds) = hit {
+            return Some(bounds);
+        }
+
+        let hit_clip = clip.with_rounded_rect(rect, element_corner_radii(element))?;
+        if hit_clip.contains(x, y) {
+            hit_path.clear();
+            hit_path.extend_from_slice(current_path);
+            Some(rect)
+        } else {
+            None
+        }
+    }
+}
+
+fn hit_point(x: f64, y: f64) -> Option<(u32, u32)> {
+    if !x.is_finite() || !y.is_finite() || x < 0.0 || y < 0.0 {
+        return None;
+    }
+    let x = x.floor();
+    let y = y.floor();
+    if x > u32::MAX as f64 || y > u32::MAX as f64 {
+        return None;
+    }
+    Some((x as u32, y as u32))
 }

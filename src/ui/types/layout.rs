@@ -155,6 +155,13 @@ impl From<Size> for MeasuredSize {
     }
 }
 
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Hit {
+    /// Child-index path from the root to the hit element. The root element is an empty path.
+    pub path: Vec<usize>,
+    pub bounds: Bounds,
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct RectLayout {
     pub surface: Option<Surface>,

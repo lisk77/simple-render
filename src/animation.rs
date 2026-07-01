@@ -1,5 +1,5 @@
 use crate::{
-    ui::{Color, Inset, Spacing},
+    ui::{Color, Inset, PaintTransform, Spacing},
     wayland::FrameAction,
 };
 
@@ -36,6 +36,26 @@ pub struct AnimationFrame {
     pub elapsed_ms: u32,
     pub progress: f32,
     pub complete: bool,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct VisualTransition {
+    pub animation: Animation,
+    pub from_opacity: f32,
+    pub to_opacity: f32,
+    pub from_scale: f32,
+    pub to_scale: f32,
+    pub from_translate_x: i32,
+    pub to_translate_x: i32,
+    pub from_translate_y: i32,
+    pub to_translate_y: i32,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct VisualTransitionFrame {
+    pub animation: AnimationFrame,
+    pub opacity: f32,
+    pub transform: PaintTransform,
 }
 
 impl AnimationFrame {
@@ -79,6 +99,102 @@ impl Animation {
             progress: self.progress(elapsed_ms),
             complete: self.is_complete(elapsed_ms),
         }
+    }
+}
+
+impl VisualTransition {
+    pub const fn new(animation: Animation) -> Self {
+        Self {
+            animation,
+            from_opacity: 1.0,
+            to_opacity: 1.0,
+            from_scale: 1.0,
+            to_scale: 1.0,
+            from_translate_x: 0,
+            to_translate_x: 0,
+            from_translate_y: 0,
+            to_translate_y: 0,
+        }
+    }
+
+    pub const fn fade(animation: Animation, from_opacity: f32, to_opacity: f32) -> Self {
+        Self {
+            from_opacity,
+            to_opacity,
+            ..Self::new(animation)
+        }
+    }
+
+    pub const fn scale(animation: Animation, from_scale: f32, to_scale: f32) -> Self {
+        Self {
+            from_scale,
+            to_scale,
+            ..Self::new(animation)
+        }
+    }
+
+    pub const fn translate(
+        animation: Animation,
+        from_translate_x: i32,
+        to_translate_x: i32,
+        from_translate_y: i32,
+        to_translate_y: i32,
+    ) -> Self {
+        Self {
+            from_translate_x,
+            to_translate_x,
+            from_translate_y,
+            to_translate_y,
+            ..Self::new(animation)
+        }
+    }
+
+    pub const fn opacity(mut self, from: f32, to: f32) -> Self {
+        self.from_opacity = from;
+        self.to_opacity = to;
+        self
+    }
+
+    pub const fn visual_scale(mut self, from: f32, to: f32) -> Self {
+        self.from_scale = from;
+        self.to_scale = to;
+        self
+    }
+
+    pub const fn translation(mut self, from_x: i32, to_x: i32, from_y: i32, to_y: i32) -> Self {
+        self.from_translate_x = from_x;
+        self.to_translate_x = to_x;
+        self.from_translate_y = from_y;
+        self.to_translate_y = to_y;
+        self
+    }
+
+    pub fn frame(self, elapsed_ms: u32) -> VisualTransitionFrame {
+        let animation = self.animation.frame(elapsed_ms);
+        VisualTransitionFrame {
+            animation,
+            opacity: lerp_f32(self.from_opacity, self.to_opacity, animation.progress)
+                .clamp(0.0, 1.0),
+            transform: PaintTransform::new(
+                lerp_f32(self.from_scale, self.to_scale, animation.progress),
+                lerp_i32(
+                    self.from_translate_x,
+                    self.to_translate_x,
+                    animation.progress,
+                ),
+                lerp_i32(
+                    self.from_translate_y,
+                    self.to_translate_y,
+                    animation.progress,
+                ),
+            ),
+        }
+    }
+}
+
+impl VisualTransitionFrame {
+    pub fn frame_action(self) -> FrameAction {
+        self.animation.frame_action()
     }
 }
 

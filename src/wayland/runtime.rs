@@ -1,6 +1,6 @@
 use super::placement::apply_placement;
 use super::*;
-use crate::animation::{Animation, lerp_i32};
+use crate::animation::{Animation, lerp_i32, lerp_u32};
 use std::collections::BTreeMap;
 
 pub fn run<R>(renderer: R, options: LayerOptions, receiver: RenderReceiver) -> Result<()>
@@ -43,6 +43,7 @@ where
     let layer_shell = LayerShell::bind(&globals, &qh)?;
     let shm = Shm::bind(&globals, &qh)?;
     let output_state = OutputState::new(&globals, &qh);
+    let seat_state = SeatState::new(&globals, &qh);
 
     let mut surfaces = BTreeMap::new();
     if let Some((id, options)) = initial_surface {
@@ -56,10 +57,12 @@ where
     let mut state = State {
         registry_state: RegistryState::new(&globals),
         output_state,
+        seat_state,
         compositor,
         layer_shell,
         shm,
         surfaces,
+        pointer: None,
         renderer,
         running: true,
         exit_when_all_surfaces_closed,
@@ -86,10 +89,12 @@ where
 pub(in crate::wayland) struct State<R> {
     pub(in crate::wayland) registry_state: RegistryState,
     pub(in crate::wayland) output_state: OutputState,
+    pub(in crate::wayland) seat_state: SeatState,
     compositor: CompositorState,
     layer_shell: LayerShell,
     pub(in crate::wayland) shm: Shm,
     pub(in crate::wayland) surfaces: BTreeMap<SurfaceId, RenderSurface>,
+    pub(in crate::wayland) pointer: Option<wl_pointer::WlPointer>,
     pub(in crate::wayland) renderer: R,
     pub(in crate::wayland) running: bool,
     exit_when_all_surfaces_closed: bool,
@@ -127,7 +132,20 @@ where
                 animation,
                 destroy_on_complete,
             } => self.animate_surface_margins(qh, id, to, animation, destroy_on_complete),
+            RenderCommand::AnimateSurfaceSize {
+                id,
+                width,
+                height,
+                animation,
+                destroy_on_complete,
+            } => self.animate_surface_size(qh, id, width, height, animation, destroy_on_complete),
             RenderCommand::CancelSurfaceAnimation { id } => self.cancel_surface_animation(id),
+            RenderCommand::RequestOutputs { reply } => {
+                let _ = reply.send(self.render_outputs());
+            }
+            RenderCommand::RequestSurfaceState { id, reply } => {
+                let _ = reply.send(self.surface_state(id));
+            }
             RenderCommand::Exit => self.running = false,
         }
     }
@@ -174,6 +192,7 @@ where
         let Some(surface) = self.surfaces.get_mut(&id) else {
             return;
         };
+        surface.cancel_animation();
         surface.set_size(width, height);
         if surface.configured {
             self.draw(qh, id, None);
@@ -223,6 +242,37 @@ where
             result
         };
 
+        self.handle_surface_animation_start(qh, id, result);
+    }
+
+    fn animate_surface_size(
+        &mut self,
+        qh: &QueueHandle<Self>,
+        id: SurfaceId,
+        width: u32,
+        height: u32,
+        animation: Animation,
+        destroy_on_complete: bool,
+    ) {
+        let result = {
+            let Some(surface) = self.surfaces.get_mut(&id) else {
+                return;
+            };
+            let result =
+                surface.start_size_animation(width, height, animation, destroy_on_complete);
+            surface.layer.commit();
+            result
+        };
+
+        self.handle_surface_animation_start(qh, id, result);
+    }
+
+    fn handle_surface_animation_start(
+        &mut self,
+        qh: &QueueHandle<Self>,
+        id: SurfaceId,
+        result: SurfaceAnimationStart,
+    ) {
         match result {
             SurfaceAnimationStart::Animate => {
                 if let Some(surface) = self.surfaces.get_mut(&id) {
@@ -300,6 +350,28 @@ where
         }
     }
 
+    pub(in crate::wayland) fn handle_input_action(
+        &mut self,
+        qh: &QueueHandle<Self>,
+        id: SurfaceId,
+        action: InputAction,
+    ) {
+        match action {
+            InputAction::Ignore => {}
+            InputAction::Redraw => self.draw(qh, id, None),
+            InputAction::Animate => {
+                self.draw(qh, id, None);
+                if let Some(surface) = self.surfaces.get_mut(&id) {
+                    surface.request_frame(qh);
+                }
+            }
+            InputAction::Exit => {
+                self.remove_surface(id);
+                self.maybe_exit_after_surface_removal();
+            }
+        }
+    }
+
     pub(in crate::wayland) fn surface_id_for_wl_surface(
         &self,
         wl_surface: &wl_surface::WlSurface,
@@ -331,10 +403,42 @@ where
         if let Some(frame) = surface.take_frame() {
             self.retired_frames.push(frame);
         }
+        self.renderer.closed_surface(id);
+    }
+
+    pub(in crate::wayland) fn render_output(
+        &self,
+        output: &wl_output::WlOutput,
+    ) -> Option<RenderOutput> {
+        self.output_state.info(output).map(|info| RenderOutput {
+            id: info.id,
+            name: info.name,
+            description: info.description,
+            make: info.make,
+            model: info.model,
+            logical_position: info.logical_position,
+            logical_size: info.logical_size,
+            scale_factor: info.scale_factor,
+        })
+    }
+
+    fn render_outputs(&self) -> Vec<RenderOutput> {
+        self.output_state
+            .outputs()
+            .filter_map(|output| self.render_output(&output))
+            .collect()
+    }
+
+    fn surface_state(&self, id: SurfaceId) -> Option<RenderSurfaceState> {
+        self.surfaces.get(&id).map(|surface| surface.state(id))
     }
 
     fn collect_released_frames(&mut self) {
+        let retired_count = self.retired_frames.len();
         self.retired_frames.retain(|frame| !frame.released());
+        if self.retired_frames.len() < retired_count {
+            crate::memory::trim_free_heap_pages();
+        }
     }
 }
 
@@ -367,9 +471,22 @@ fn resolve_output_target(
 struct SurfaceAnimation {
     animation: Animation,
     started_at: Option<u32>,
-    from: Margins,
-    to: Margins,
+    target: SurfaceAnimationTarget,
     destroy_on_complete: bool,
+}
+
+#[derive(Clone, Copy)]
+enum SurfaceAnimationTarget {
+    Margins {
+        from: Margins,
+        to: Margins,
+    },
+    Size {
+        from_width: u32,
+        from_height: u32,
+        to_width: u32,
+        to_height: u32,
+    },
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -404,6 +521,7 @@ pub(in crate::wayland) struct RenderSurface {
     pub(in crate::wayland) width: u32,
     pub(in crate::wayland) height: u32,
     output: Option<OutputTarget>,
+    layer_kind: Layer,
     scale: u32,
     anchor: Anchor,
     margins: Margins,
@@ -440,6 +558,7 @@ impl RenderSurface {
             width: options.width,
             height: options.height,
             output: options.output.clone(),
+            layer_kind: options.layer,
             scale: 1,
             anchor: options.anchor,
             margins: options.margins,
@@ -477,6 +596,7 @@ impl RenderSurface {
     }
 
     fn set_layer(&mut self, layer: Layer) {
+        self.layer_kind = layer;
         self.layer.set_layer(layer.into_sctk());
     }
 
@@ -512,8 +632,41 @@ impl RenderSurface {
         self.animation = Some(SurfaceAnimation {
             animation,
             started_at: None,
-            from: self.margins,
-            to,
+            target: SurfaceAnimationTarget::Margins {
+                from: self.margins,
+                to,
+            },
+            destroy_on_complete,
+        });
+        SurfaceAnimationStart::Animate
+    }
+
+    fn start_size_animation(
+        &mut self,
+        width: u32,
+        height: u32,
+        animation: Animation,
+        destroy_on_complete: bool,
+    ) -> SurfaceAnimationStart {
+        if animation.duration_ms == 0 {
+            self.set_size(width, height);
+            self.animation = None;
+            return if destroy_on_complete {
+                SurfaceAnimationStart::Destroy
+            } else {
+                SurfaceAnimationStart::Complete
+            };
+        }
+
+        self.animation = Some(SurfaceAnimation {
+            animation,
+            started_at: None,
+            target: SurfaceAnimationTarget::Size {
+                from_width: self.width,
+                from_height: self.height,
+                to_width: width,
+                to_height: height,
+            },
             destroy_on_complete,
         });
         SurfaceAnimationStart::Animate
@@ -530,8 +683,23 @@ impl RenderSurface {
 
         let started_at = *animation.started_at.get_or_insert(time);
         let frame = animation.animation.frame(time.saturating_sub(started_at));
-        self.margins = animation.from.lerp(animation.to, frame.progress);
-        apply_placement(&self.layer, self.anchor, self.margins);
+        match animation.target {
+            SurfaceAnimationTarget::Margins { from, to } => {
+                self.margins = from.lerp(to, frame.progress);
+                apply_placement(&self.layer, self.anchor, self.margins);
+            }
+            SurfaceAnimationTarget::Size {
+                from_width,
+                from_height,
+                to_width,
+                to_height,
+            } => {
+                self.set_size(
+                    lerp_u32(from_width, to_width, frame.progress),
+                    lerp_u32(from_height, to_height, frame.progress),
+                );
+            }
+        }
 
         if frame.complete {
             if animation.destroy_on_complete {
@@ -630,6 +798,22 @@ impl RenderSurface {
 
     fn take_frame(&mut self) -> Option<Frame> {
         self.frame.take()
+    }
+
+    fn state(&self, id: SurfaceId) -> RenderSurfaceState {
+        RenderSurfaceState {
+            id,
+            configured: self.configured,
+            width: self.width,
+            height: self.height,
+            output: self.output.clone(),
+            layer: self.layer_kind,
+            anchor: self.anchor,
+            margins: self.margins,
+            scale: self.scale,
+            animating: self.animation.is_some(),
+            frame_pending: self.frame_pending,
+        }
     }
 }
 

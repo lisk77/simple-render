@@ -46,10 +46,112 @@ pub struct FontCtx {
     glyphs: Vec<GlyphPaint>,
 }
 
+#[derive(Clone, Debug, Default)]
+pub struct FontCtxOptions {
+    sources: Option<Vec<FontSource>>,
+}
+
+impl FontCtxOptions {
+    pub fn system() -> Self {
+        Self { sources: None }
+    }
+
+    pub fn from_font_sources(fonts: impl IntoIterator<Item = FontSource>) -> Self {
+        Self {
+            sources: Some(fonts.into_iter().collect()),
+        }
+    }
+
+    fn create(&self) -> FontCtx {
+        match &self.sources {
+            Some(sources) => FontCtx::new_with_font_sources(sources.iter().cloned()),
+            None => FontCtx::new(),
+        }
+    }
+}
+
+pub struct LazyFontCtx {
+    options: FontCtxOptions,
+    fonts: Option<FontCtx>,
+}
+
+impl LazyFontCtx {
+    pub fn new() -> Self {
+        Self::with_options(FontCtxOptions::system())
+    }
+
+    pub fn with_options(options: FontCtxOptions) -> Self {
+        Self {
+            options,
+            fonts: None,
+        }
+    }
+
+    pub fn is_loaded(&self) -> bool {
+        self.fonts.is_some()
+    }
+
+    pub fn get(&mut self) -> &mut FontCtx {
+        if self.fonts.is_none() {
+            self.fonts = Some(self.options.create());
+        }
+        self.fonts.as_mut().expect("font context was just created")
+    }
+
+    pub fn clear_raster_cache(&mut self) {
+        if let Some(fonts) = &mut self.fonts {
+            fonts.clear_raster_cache();
+        }
+    }
+
+    pub fn trim_scratch(&mut self) {
+        if let Some(fonts) = &mut self.fonts {
+            fonts.trim_scratch();
+        }
+    }
+
+    pub fn trim_frame_memory(&mut self) {
+        self.clear_raster_cache();
+        self.trim_scratch();
+    }
+
+    pub fn release(&mut self) {
+        self.fonts = None;
+        crate::memory::trim_free_heap_pages();
+    }
+}
+
+impl Default for LazyFontCtx {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl FontCtx {
     pub fn new() -> Self {
+        Self::from_font_system(FontSystem::new())
+    }
+
+    pub fn new_with_font_sources(fonts: impl IntoIterator<Item = FontSource>) -> Self {
+        let mut db = fontdb::Database::new();
+        for source in fonts {
+            db.load_font_source(source);
+        }
+        let default_family = db
+            .faces()
+            .find_map(|face| face.families.first().map(|(family, _)| family.clone()));
+        if let Some(family) = default_family {
+            db.set_sans_serif_family(family.clone());
+            db.set_serif_family(family.clone());
+            db.set_monospace_family(family);
+        }
+
+        Self::from_font_system(FontSystem::new_with_locale_and_db("en-US".into(), db))
+    }
+
+    fn from_font_system(font_system: FontSystem) -> Self {
         Self {
-            font_system: FontSystem::new(),
+            font_system,
             swash_cache: SwashCache::new(),
             text_buffer: Buffer::new_empty(Metrics::new(1.0, 1.3)),
             text_runs: Vec::new(),
@@ -62,6 +164,7 @@ impl FontCtx {
     }
 
     pub fn trim_scratch(&mut self) {
+        self.text_buffer = Buffer::new_empty(Metrics::new(1.0, 1.3));
         trim_vec_capacity(&mut self.text_runs, RETAINED_TEXT_RUN_CAPACITY);
         trim_vec_capacity(&mut self.glyphs, RETAINED_GLYPH_CAPACITY);
     }
@@ -89,22 +192,26 @@ pub use rect::{Rect, Ui};
 
 struct UiRenderer {
     root: Rect,
-    fonts: FontCtx,
+    fonts: LazyFontCtx,
 }
 
 impl Renderer for UiRenderer {
     fn draw(&mut self, canvas: &mut Canvas<'_>, context: RenderContext) -> FrameAction {
         canvas.clear(Color::TRANSPARENT.into());
+        let fonts = self.fonts.get();
         self.root.paint_scaled_with_fonts(
             canvas,
-            &mut self.fonts,
+            fonts,
             context.width,
             context.height,
             context.scale,
         );
-        self.fonts.clear_raster_cache();
-        self.fonts.trim_scratch();
+        self.fonts.trim_frame_memory();
         FrameAction::Wait
+    }
+
+    fn closed_surface(&mut self, _: SurfaceId) {
+        self.fonts.release();
     }
 }
 
@@ -229,7 +336,7 @@ fn layout_children(
     parent: &Rect,
     content: Bounds,
     fonts: &mut FontCtx,
-    mut layout_child: impl FnMut(&Rect, Bounds, Size, &mut FontCtx),
+    mut layout_child: impl FnMut(usize, &Rect, Bounds, Size, &mut FontCtx),
 ) {
     let count = parent
         .children
@@ -318,10 +425,11 @@ fn layout_children(
 
     let mut distributed = 0_u32;
     let mut remaining_weight = fill_weight;
-    for child in parent
+    for (index, child) in parent
         .children
         .iter()
-        .filter(|child| child.position == Position::Flow)
+        .enumerate()
+        .filter(|(_, child)| child.position == Position::Flow)
     {
         let measured = measure_element(child, fonts, content.width, content.height);
         let axis = match axis_length(child, parent.direction) {
@@ -372,7 +480,7 @@ fn layout_children(
             },
         };
         cursor = cursor.saturating_add(axis).saturating_add(parent.gap);
-        layout_child(child, rect, measured, fonts);
+        layout_child(index, child, rect, measured, fonts);
     }
 
     layout_absolute_children(parent, content, fonts, layout_child);
@@ -382,18 +490,19 @@ fn layout_absolute_children(
     parent: &Rect,
     content: Bounds,
     fonts: &mut FontCtx,
-    mut layout_child: impl FnMut(&Rect, Bounds, Size, &mut FontCtx),
+    mut layout_child: impl FnMut(usize, &Rect, Bounds, Size, &mut FontCtx),
 ) {
-    for child in parent
+    for (index, child) in parent
         .children
         .iter()
-        .filter(|child| child.position == Position::Absolute)
+        .enumerate()
+        .filter(|(_, child)| child.position == Position::Absolute)
     {
         let (rect, measured) = absolute_child_rect(child, content, fonts);
         if rect.width == 0 || rect.height == 0 {
             continue;
         }
-        layout_child(child, rect, measured, fonts);
+        layout_child(index, child, rect, measured, fonts);
     }
 }
 
