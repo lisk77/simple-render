@@ -186,7 +186,6 @@ fn trim_vec_capacity<T>(values: &mut Vec<T>, retained_capacity: usize) {
 mod paint;
 mod rect;
 
-pub use paint::PaintTransform;
 use paint::*;
 pub use rect::{Rect, Ui};
 

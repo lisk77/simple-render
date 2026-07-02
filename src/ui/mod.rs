@@ -15,5 +15,5 @@ mod render;
 mod types;
 
 pub use cosmic_text::fontdb::Source as FontSource;
-pub use render::{FontCtx, FontCtxOptions, LazyFontCtx, PaintTransform, Rect, Ui};
+pub use render::{FontCtx, FontCtxOptions, LazyFontCtx, Rect, Ui};
 pub use types::*;

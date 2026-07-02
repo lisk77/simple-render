@@ -101,6 +101,87 @@ pub enum GradientDirection {
     DiagonalReverse,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct PaintTransform {
+    pub scale: f32,
+    pub translate_x: i32,
+    pub translate_y: i32,
+}
+
+impl PaintTransform {
+    pub const IDENTITY: Self = Self {
+        scale: 1.0,
+        translate_x: 0,
+        translate_y: 0,
+    };
+
+    pub const fn new(scale: f32, translate_x: i32, translate_y: i32) -> Self {
+        Self {
+            scale,
+            translate_x,
+            translate_y,
+        }
+    }
+
+    pub const fn scale(scale: f32) -> Self {
+        Self {
+            scale,
+            ..Self::IDENTITY
+        }
+    }
+
+    pub const fn translate(translate_x: i32, translate_y: i32) -> Self {
+        Self {
+            translate_x,
+            translate_y,
+            ..Self::IDENTITY
+        }
+    }
+
+    pub fn compose(self, next: Self) -> Self {
+        let scale = sanitize_scale(self.scale) * sanitize_scale(next.scale);
+        Self {
+            scale,
+            translate_x: scale_i32_f32(next.translate_x, sanitize_scale(self.scale))
+                .saturating_add(self.translate_x),
+            translate_y: scale_i32_f32(next.translate_y, sanitize_scale(self.scale))
+                .saturating_add(self.translate_y),
+        }
+    }
+
+    pub fn is_identity(self) -> bool {
+        self.scale == 1.0 && self.translate_x == 0 && self.translate_y == 0
+    }
+}
+
+impl Default for PaintTransform {
+    fn default() -> Self {
+        Self::IDENTITY
+    }
+}
+
+pub(in crate::ui) fn sanitize_scale(scale: f32) -> f32 {
+    if scale.is_finite() {
+        scale.max(0.0)
+    } else {
+        0.0
+    }
+}
+
+pub(in crate::ui) fn scale_i32_f32(value: i32, scale: f32) -> i32 {
+    let scaled = f64::from(value) * f64::from(scale);
+    if !scaled.is_finite() {
+        return if scaled.is_sign_negative() {
+            i32::MIN
+        } else {
+            i32::MAX
+        };
+    }
+    scaled
+        .round()
+        .clamp(f64::from(i32::MIN), f64::from(i32::MAX)) as i32
+}
+
 pub(in crate::ui::types) fn interpolate_color(
     from: Color,
     to: Color,

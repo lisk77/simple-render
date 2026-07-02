@@ -50,6 +50,7 @@ pub struct Style {
     pub corner_radii: CornerRadius,
     pub gradient: GradientDirection,
     pub opacity: f32,
+    pub transform: PaintTransform,
 }
 
 impl Default for Style {
@@ -61,6 +62,7 @@ impl Default for Style {
             corner_radii: CornerRadius::ZERO,
             gradient: GradientDirection::default(),
             opacity: 1.0,
+            transform: PaintTransform::IDENTITY,
         }
     }
 }
@@ -74,6 +76,7 @@ impl Style {
             corner_radii: CornerRadius::ZERO,
             gradient: GradientDirection::default(),
             opacity: 1.0,
+            transform: PaintTransform::IDENTITY,
         }
     }
 }

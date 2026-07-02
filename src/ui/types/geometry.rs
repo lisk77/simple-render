@@ -18,6 +18,28 @@ impl Bounds {
         }
     }
 
+    pub fn union(self, other: Self) -> Self {
+        let x = self.x.min(other.x);
+        let y = self.y.min(other.y);
+        let right = self.right().max(other.right());
+        let bottom = self.bottom().max(other.bottom());
+        Self {
+            x,
+            y,
+            width: right.saturating_sub(x),
+            height: bottom.saturating_sub(y),
+        }
+    }
+
+    pub fn translate(self, x: i32, y: i32) -> Self {
+        Self {
+            x: translate_u32(self.x, x),
+            y: translate_u32(self.y, y),
+            width: self.width,
+            height: self.height,
+        }
+    }
+
     pub(in crate::ui) fn inset(self, spacing: Spacing) -> Self {
         let horizontal = spacing.left.saturating_add(spacing.right);
         let vertical = spacing.top.saturating_add(spacing.bottom);
@@ -50,6 +72,14 @@ impl Bounds {
             width,
             height,
         })
+    }
+}
+
+fn translate_u32(value: u32, offset: i32) -> u32 {
+    if offset.is_negative() {
+        value.saturating_sub(offset.unsigned_abs())
+    } else {
+        value.saturating_add(offset as u32)
     }
 }
 

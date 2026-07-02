@@ -1,6 +1,6 @@
 [package]
 name = "simple-render"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 description = "a simple immediate mode wayland ui renderer inspired by clay"
 repository = "https://github.com/lisk77/simple-render"

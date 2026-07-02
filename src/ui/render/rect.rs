@@ -25,6 +25,55 @@ pub struct Rect {
 
 pub type Ui = Rect;
 
+#[derive(Clone, Copy, Debug)]
+struct VisualState {
+    scale: f32,
+    translate_x: f32,
+    translate_y: f32,
+}
+
+impl VisualState {
+    const IDENTITY: Self = Self {
+        scale: 1.0,
+        translate_x: 0.0,
+        translate_y: 0.0,
+    };
+
+    fn then_element(self, transform: PaintTransform, origin: Bounds) -> Self {
+        let scale = sanitize_scale(transform.scale);
+        let origin_x = origin.x as f32;
+        let origin_y = origin.y as f32;
+        let local_translate_x = origin_x + transform.translate_x as f32 - origin_x * scale;
+        let local_translate_y = origin_y + transform.translate_y as f32 - origin_y * scale;
+
+        Self {
+            scale: self.scale * scale,
+            translate_x: self.translate_x + self.scale * local_translate_x,
+            translate_y: self.translate_y + self.scale * local_translate_y,
+        }
+    }
+
+    fn bounds(self, bounds: Bounds) -> Option<Bounds> {
+        if self.scale <= 0.0 {
+            return None;
+        }
+
+        let left = (bounds.x as f32 * self.scale + self.translate_x).floor();
+        let top = (bounds.y as f32 * self.scale + self.translate_y).floor();
+        let right = (bounds.right() as f32 * self.scale + self.translate_x).ceil();
+        let bottom = (bounds.bottom() as f32 * self.scale + self.translate_y).ceil();
+        signed_bounds(left, top, right, bottom)
+    }
+
+    fn radii(self, radii: CornerRadius) -> CornerRadius {
+        scale_corner_radius(radii, self.scale)
+    }
+
+    fn border_widths(self, widths: BorderWidth) -> BorderWidth {
+        scale_border_widths(widths, self.scale)
+    }
+}
+
 impl Default for Rect {
     fn default() -> Self {
         Self {
@@ -88,6 +137,9 @@ impl Rect {
         self.padding = layout.padding;
         self.gap = layout.gap;
         self.style = layout.style;
+        if !layout.transform.is_identity() {
+            self.style.transform = layout.transform;
+        }
         self.content = layout.content;
         self
     }
@@ -214,6 +266,22 @@ impl Rect {
         self
     }
 
+    pub fn transform(mut self, transform: PaintTransform) -> Self {
+        self.style.transform = transform;
+        self
+    }
+
+    pub fn translate(mut self, x: i32, y: i32) -> Self {
+        self.style.transform.translate_x = x;
+        self.style.transform.translate_y = y;
+        self
+    }
+
+    pub fn scale(mut self, scale: f32) -> Self {
+        self.style.transform.scale = scale;
+        self
+    }
+
     pub fn content(mut self, content: impl Into<Content>) -> Self {
         self.content = Some(content.into());
         self
@@ -274,6 +342,7 @@ impl Rect {
             self,
             bounds,
             Clip::rect(bounds),
+            VisualState::IDENTITY,
             1.0,
             None,
             fonts,
@@ -283,6 +352,33 @@ impl Rect {
         );
         fonts.trim_scratch();
         commands
+    }
+
+    pub fn visual_bounds(&self, bounds: Bounds) -> Option<Bounds> {
+        let mut fonts = FontCtx::new();
+        self.visual_bounds_with_fonts(bounds, &mut fonts)
+    }
+
+    pub fn visual_bounds_with_fonts(&self, bounds: Bounds, fonts: &mut FontCtx) -> Option<Bounds> {
+        let mut visual_bounds: Option<Bounds> = None;
+        Self::visit_layout(
+            self,
+            bounds,
+            Clip::rect(bounds),
+            VisualState::IDENTITY,
+            1.0,
+            None,
+            fonts,
+            &mut |command, _| {
+                let bounds = command.rect();
+                visual_bounds = Some(match visual_bounds {
+                    Some(current) => current.union(bounds),
+                    None => bounds,
+                });
+            },
+        );
+        fonts.trim_scratch();
+        visual_bounds
     }
 
     pub fn measure(&self, available_width: u32, available_height: u32) -> MeasuredSize {
@@ -348,6 +444,7 @@ impl Rect {
             self,
             bounds,
             Clip::rect(bounds),
+            VisualState::IDENTITY,
             None,
             fonts,
             x,
@@ -635,6 +732,7 @@ impl Rect {
             self,
             bounds,
             Clip::rect(bounds),
+            VisualState::IDENTITY,
             1.0,
             None,
             fonts,
@@ -684,6 +782,7 @@ impl Rect {
             self,
             bounds,
             Clip::rect(bounds),
+            VisualState::IDENTITY,
             1.0,
             None,
             fonts,
@@ -702,6 +801,7 @@ impl Rect {
         element: &Rect,
         bounds: Bounds,
         clip: Clip,
+        state: VisualState,
         opacity: f32,
         premeasured: Option<Size>,
         fonts: &mut FontCtx,
@@ -733,13 +833,15 @@ impl Rect {
             width,
             height,
         };
-        let Some(clip) = clip.intersect_bounds(rect) else {
-            return;
-        };
+        let state = state.then_element(element.style.transform, rect);
+        let visual_rect = state.bounds(rect);
+        let own_clip = visual_rect.and_then(|rect| clip.intersect_bounds(rect));
         let opacity = multiply_opacity(opacity, element.style.opacity);
-        let radii = element_corner_radii(element);
+        let radii = state.radii(element_corner_radii(element));
 
-        if let Some(paint) = &element.style.background {
+        if let (Some(rect), Some(clip), Some(paint)) =
+            (visual_rect, own_clip, element.style.background.as_ref())
+        {
             visit(
                 PaintCommand::Rect {
                     rect,
@@ -752,7 +854,9 @@ impl Rect {
                 fonts,
             );
         }
-        if let Some(border) = &element.style.border {
+        if let (Some(rect), Some(clip), Some(border)) =
+            (visual_rect, own_clip, element.style.border.as_ref())
+        {
             visit(
                 PaintCommand::Border {
                     rect,
@@ -760,36 +864,41 @@ impl Rect {
                     opacity,
                     paint: &border.color,
                     gradient: border.gradient,
-                    widths: border_widths(border),
+                    widths: state.border_widths(border_widths(border)),
                     radii,
                 },
                 fonts,
             );
         }
         let content_rect = rect.inset(element.padding);
-        if let Some(content) = &element.content {
+        let visual_content_rect = state.bounds(content_rect);
+        if let (Some(rect), Some(clip), Some(content)) =
+            (visual_content_rect, own_clip, element.content.as_ref())
+        {
             match content {
                 Content::Text(text) => visit(
                     PaintCommand::Text {
-                        rect: content_rect,
+                        rect,
                         clip,
                         opacity,
+                        scale: state.scale,
                         text,
                     },
                     fonts,
                 ),
                 Content::RichText(text) => visit(
                     PaintCommand::RichText {
-                        rect: content_rect,
+                        rect,
                         clip,
                         opacity,
+                        scale: state.scale,
                         text,
                     },
                     fonts,
                 ),
                 Content::Image(image) => visit(
                     PaintCommand::Image {
-                        rect: content_rect,
+                        rect,
                         clip,
                         opacity,
                         image,
@@ -805,8 +914,11 @@ impl Rect {
 
         let child_clip = match element.overflow {
             Overflow::Clip => {
+                let (Some(clip), Some(content_rect)) = (own_clip, visual_content_rect) else {
+                    return;
+                };
                 let Some(child_clip) =
-                    clip.with_rounded_rect(content_rect, content_clip_radii(element))
+                    clip.with_rounded_rect(content_rect, state.radii(content_clip_radii(element)))
                 else {
                     return;
                 };
@@ -823,6 +935,7 @@ impl Rect {
                     child,
                     rect,
                     child_clip,
+                    state,
                     opacity,
                     Some(measured),
                     fonts,
@@ -837,6 +950,7 @@ impl Rect {
         element: &Rect,
         bounds: Bounds,
         clip: Clip,
+        state: VisualState,
         premeasured: Option<Size>,
         fonts: &mut FontCtx,
         x: u32,
@@ -870,10 +984,16 @@ impl Rect {
             width,
             height,
         };
-        let clip = clip.intersect_bounds(rect)?;
+        let state = state.then_element(element.style.transform, rect);
+        let visual_rect = state.bounds(rect)?;
+        let clip = clip.intersect_bounds(visual_rect)?;
         let content_rect = rect.inset(element.padding);
+        let visual_content_rect = state.bounds(content_rect)?;
         let child_clip = match element.overflow {
-            Overflow::Clip => clip.with_rounded_rect(content_rect, content_clip_radii(element))?,
+            Overflow::Clip => clip.with_rounded_rect(
+                visual_content_rect,
+                state.radii(content_clip_radii(element)),
+            )?,
             Overflow::Visible => clip,
         };
 
@@ -888,6 +1008,7 @@ impl Rect {
                     child,
                     rect,
                     child_clip,
+                    state,
                     Some(measured),
                     fonts,
                     x,
@@ -905,14 +1026,67 @@ impl Rect {
             return Some(bounds);
         }
 
-        let hit_clip = clip.with_rounded_rect(rect, element_corner_radii(element))?;
+        let hit_clip =
+            clip.with_rounded_rect(visual_rect, state.radii(element_corner_radii(element)))?;
         if hit_clip.contains(x, y) {
             hit_path.clear();
             hit_path.extend_from_slice(current_path);
-            Some(rect)
+            Some(visual_rect)
         } else {
             None
         }
+    }
+}
+
+fn signed_bounds(left: f32, top: f32, right: f32, bottom: f32) -> Option<Bounds> {
+    if !left.is_finite()
+        || !top.is_finite()
+        || !right.is_finite()
+        || !bottom.is_finite()
+        || right <= left
+        || bottom <= top
+    {
+        return None;
+    }
+
+    let left = left.max(0.0).min(u32::MAX as f32) as u32;
+    let top = top.max(0.0).min(u32::MAX as f32) as u32;
+    let right = right.max(0.0).min(u32::MAX as f32) as u32;
+    let bottom = bottom.max(0.0).min(u32::MAX as f32) as u32;
+    let width = right.saturating_sub(left);
+    let height = bottom.saturating_sub(top);
+    (width > 0 && height > 0).then_some(Bounds {
+        x: left,
+        y: top,
+        width,
+        height,
+    })
+}
+
+fn scale_corner_radius(radii: CornerRadius, scale: f32) -> CornerRadius {
+    CornerRadius {
+        top_left: scale_u32_f32(radii.top_left, scale),
+        top_right: scale_u32_f32(radii.top_right, scale),
+        bottom_right: scale_u32_f32(radii.bottom_right, scale),
+        bottom_left: scale_u32_f32(radii.bottom_left, scale),
+    }
+}
+
+fn scale_border_widths(widths: BorderWidth, scale: f32) -> BorderWidth {
+    BorderWidth {
+        top: scale_u32_f32(widths.top, scale),
+        right: scale_u32_f32(widths.right, scale),
+        bottom: scale_u32_f32(widths.bottom, scale),
+        left: scale_u32_f32(widths.left, scale),
+    }
+}
+
+fn scale_u32_f32(value: u32, scale: f32) -> u32 {
+    let scaled = f64::from(value) * f64::from(scale);
+    if !scaled.is_finite() || scaled <= 0.0 {
+        0
+    } else {
+        scaled.round().min(f64::from(u32::MAX)) as u32
     }
 }
 

@@ -22,71 +22,9 @@ pub(super) struct PaintOffset {
     pub(super) y: i32,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct PaintTransform {
-    pub scale: f32,
-    pub translate_x: i32,
-    pub translate_y: i32,
-}
-
-impl PaintTransform {
-    pub const IDENTITY: Self = Self {
-        scale: 1.0,
-        translate_x: 0,
-        translate_y: 0,
-    };
-
-    pub const fn new(scale: f32, translate_x: i32, translate_y: i32) -> Self {
-        Self {
-            scale,
-            translate_x,
-            translate_y,
-        }
-    }
-
-    pub const fn scale(scale: f32) -> Self {
-        Self {
-            scale,
-            ..Self::IDENTITY
-        }
-    }
-
-    pub const fn translate(translate_x: i32, translate_y: i32) -> Self {
-        Self {
-            translate_x,
-            translate_y,
-            ..Self::IDENTITY
-        }
-    }
-
-    pub(super) fn is_identity(self) -> bool {
-        self.scale == 1.0 && self.translate_x == 0 && self.translate_y == 0
-    }
-}
-
-impl Default for PaintTransform {
-    fn default() -> Self {
-        Self::IDENTITY
-    }
-}
-
 pub(super) fn scale_i32(value: i32, scale: u32) -> i32 {
     let scaled = i64::from(value) * i64::from(scale);
     scaled.clamp(i64::from(i32::MIN), i64::from(i32::MAX)) as i32
-}
-
-pub(super) fn scale_i32_f32(value: i32, scale: f32) -> i32 {
-    let scaled = f64::from(value) * f64::from(scale);
-    if !scaled.is_finite() {
-        return if scaled.is_sign_negative() {
-            i32::MIN
-        } else {
-            i32::MAX
-        };
-    }
-    scaled
-        .round()
-        .clamp(f64::from(i32::MIN), f64::from(i32::MAX)) as i32
 }
 
 fn paint_command_with_offset(
@@ -119,14 +57,30 @@ fn paint_command_with_offset(
             rect,
             clip,
             opacity,
+            scale,
             text,
-        } => draw_text(canvas, fonts, rect, clip, opacity, text, offset),
+        } => {
+            if scale == 1.0 {
+                draw_text(canvas, fonts, rect, clip, opacity, text, offset);
+            } else {
+                let text = scaled_text_f32(text, scale);
+                draw_text(canvas, fonts, rect, clip, opacity, &text, offset);
+            }
+        }
         PaintCommand::RichText {
             rect,
             clip,
             opacity,
+            scale,
             text,
-        } => draw_rich_text(canvas, fonts, rect, clip, opacity, text, offset),
+        } => {
+            if scale == 1.0 {
+                draw_rich_text(canvas, fonts, rect, clip, opacity, text, offset);
+            } else {
+                let text = scaled_rich_text_f32(text, scale);
+                draw_rich_text(canvas, fonts, rect, clip, opacity, &text, offset);
+            }
+        }
         PaintCommand::Image {
             rect,
             clip,
@@ -249,9 +203,17 @@ pub(super) fn paint_scaled_command_with_offset(
             rect,
             clip,
             opacity,
+            scale: text_scale,
             text,
         } => {
             let text = scaled_text(text, scale);
+            let text = if text_scale == 1.0 {
+                text
+            } else {
+                let mut text = text;
+                scale_text_style_f32(&mut text.style, text_scale);
+                text
+            };
             draw_text(
                 canvas,
                 fonts,
@@ -266,9 +228,15 @@ pub(super) fn paint_scaled_command_with_offset(
             rect,
             clip,
             opacity,
+            scale: text_scale,
             text,
         } => {
             let text = scaled_rich_text(text, scale);
+            let text = if text_scale == 1.0 {
+                text
+            } else {
+                scale_rich_text_styles_f32(text, text_scale)
+            };
             draw_rich_text(
                 canvas,
                 fonts,
@@ -348,9 +316,10 @@ pub(super) fn paint_scaled_f32_command_with_offset(
             rect,
             clip,
             opacity,
+            scale: text_scale,
             text,
         } => {
-            let text = scaled_text_f32(text, scale);
+            let text = scaled_text_f32(text, scale * text_scale);
             draw_text(
                 canvas,
                 fonts,
@@ -365,9 +334,10 @@ pub(super) fn paint_scaled_f32_command_with_offset(
             rect,
             clip,
             opacity,
+            scale: text_scale,
             text,
         } => {
-            let text = scaled_rich_text_f32(text, scale);
+            let text = scaled_rich_text_f32(text, scale * text_scale);
             draw_rich_text(
                 canvas,
                 fonts,
@@ -536,6 +506,13 @@ fn scaled_rich_text_f32(text: &RichText, scale: f32) -> RichText {
             run
         })
         .collect();
+    text
+}
+
+fn scale_rich_text_styles_f32(mut text: RichText, scale: f32) -> RichText {
+    for run in Arc::make_mut(&mut text.runs).iter_mut() {
+        scale_text_style_f32(&mut run.style, scale);
+    }
     text
 }
 

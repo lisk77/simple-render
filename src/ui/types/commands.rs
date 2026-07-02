@@ -23,12 +23,14 @@ pub enum DrawCommand {
         rect: Bounds,
         clip: Clip,
         opacity: f32,
+        scale: f32,
         text: Text,
     },
     RichText {
         rect: Bounds,
         clip: Clip,
         opacity: f32,
+        scale: f32,
         text: RichText,
     },
     Image {
@@ -61,12 +63,14 @@ pub(in crate::ui) enum PaintCommand<'a> {
         rect: Bounds,
         clip: Clip,
         opacity: f32,
+        scale: f32,
         text: &'a Text,
     },
     RichText {
         rect: Bounds,
         clip: Clip,
         opacity: f32,
+        scale: f32,
         text: &'a RichText,
     },
     Image {
@@ -78,6 +82,16 @@ pub(in crate::ui) enum PaintCommand<'a> {
 }
 
 impl PaintCommand<'_> {
+    pub(in crate::ui) fn rect(&self) -> Bounds {
+        match self {
+            Self::Rect { rect, .. }
+            | Self::Border { rect, .. }
+            | Self::Text { rect, .. }
+            | Self::RichText { rect, .. }
+            | Self::Image { rect, .. } => *rect,
+        }
+    }
+
     pub(in crate::ui) fn to_owned(&self) -> DrawCommand {
         match self {
             Self::Rect {
@@ -116,22 +130,26 @@ impl PaintCommand<'_> {
                 rect,
                 clip,
                 opacity,
+                scale,
                 text,
             } => DrawCommand::Text {
                 rect: *rect,
                 clip: *clip,
                 opacity: *opacity,
+                scale: *scale,
                 text: (*text).clone(),
             },
             Self::RichText {
                 rect,
                 clip,
                 opacity,
+                scale,
                 text,
             } => DrawCommand::RichText {
                 rect: *rect,
                 clip: *clip,
                 opacity: *opacity,
+                scale: *scale,
                 text: (*text).clone(),
             },
             Self::Image {

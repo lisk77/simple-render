@@ -181,6 +181,7 @@ pub struct RectLayout {
     pub padding: Spacing,
     pub gap: u32,
     pub style: Style,
+    pub transform: PaintTransform,
     pub content: Option<Content>,
 }
 
@@ -204,6 +205,7 @@ impl Default for RectLayout {
             padding: Spacing::ZERO,
             gap: 0,
             style: Style::default(),
+            transform: PaintTransform::IDENTITY,
             content: None,
         }
     }

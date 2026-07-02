@@ -1,4 +1,5 @@
 use super::*;
+use crate::ui::Bounds;
 
 pub struct Canvas<'a> {
     pub(in crate::wayland) pixels: &'a mut [u8],
@@ -148,15 +149,27 @@ impl DamageRect {
         }
     }
 
-    fn right(self) -> u32 {
+    pub fn from_bounds(bounds: Bounds) -> Self {
+        Self::new(bounds.x, bounds.y, bounds.width, bounds.height)
+    }
+
+    pub fn from_bounds_pair(previous: Bounds, current: Bounds) -> Self {
+        Self::from_bounds(previous.union(current))
+    }
+
+    pub fn include_bounds(self, bounds: Bounds) -> Self {
+        self.union(Self::from_bounds(bounds))
+    }
+
+    pub fn right(self) -> u32 {
         self.x.saturating_add(self.width)
     }
 
-    fn bottom(self) -> u32 {
+    pub fn bottom(self) -> u32 {
         self.y.saturating_add(self.height)
     }
 
-    fn union(self, other: Self) -> Self {
+    pub fn union(self, other: Self) -> Self {
         let x = self.x.min(other.x);
         let y = self.y.min(other.y);
         let right = self.right().max(other.right());
@@ -169,7 +182,7 @@ impl DamageRect {
         }
     }
 
-    fn clamp(self, width: u32, height: u32) -> Option<Self> {
+    pub fn clamp(self, width: u32, height: u32) -> Option<Self> {
         let x = self.x.min(width);
         let y = self.y.min(height);
         let right = self.right().min(width);
