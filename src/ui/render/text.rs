@@ -1,4 +1,7 @@
-use super::geometry::{multiply_coverage, rounded_rect_bounds_coverage, rounded_rect_coverage};
+use super::geometry::{
+    multiply_coverage, rounded_rect_bounds_coverage_with_antialias,
+    rounded_rect_coverage_with_antialias,
+};
 use super::*;
 
 #[derive(Clone, Copy)]
@@ -186,6 +189,7 @@ pub(super) fn fill_rounded_rect(
     clip: Clip,
     opacity: f32,
     radii: CornerRadius,
+    anti_alias: AntiAlias,
     paint: &Paint,
     gradient: GradientDirection,
     offset: PaintOffset,
@@ -202,8 +206,14 @@ pub(super) fn fill_rounded_rect(
     };
     for y in draw.y..draw.bottom() {
         for x in draw.x..draw.right() {
-            let shape_coverage =
-                rounded_rect_coverage(x - rect.x, y - rect.y, rect.width, rect.height, radii);
+            let shape_coverage = rounded_rect_coverage_with_antialias(
+                x - rect.x,
+                y - rect.y,
+                rect.width,
+                rect.height,
+                radii,
+                anti_alias,
+            );
             let coverage = multiply_coverage(shape_coverage, clip.coverage(x, y));
             if coverage > 0 {
                 let color = paint.at(x - rect.x, y - rect.y, rect.width, rect.height, gradient);
@@ -230,6 +240,7 @@ pub(super) fn stroke_rounded_rect(
     opacity: f32,
     widths: BorderWidth,
     radii: CornerRadius,
+    anti_alias: AntiAlias,
     paint: &Paint,
     gradient: GradientDirection,
     offset: PaintOffset,
@@ -254,9 +265,16 @@ pub(super) fn stroke_rounded_rect(
     let inner_radii = radii.inset(inset);
     for y in draw.y..draw.bottom() {
         for x in draw.x..draw.right() {
-            let outer_coverage =
-                rounded_rect_coverage(x - rect.x, y - rect.y, rect.width, rect.height, radii);
-            let inner_coverage = rounded_rect_bounds_coverage(inner, x, y, inner_radii);
+            let outer_coverage = rounded_rect_coverage_with_antialias(
+                x - rect.x,
+                y - rect.y,
+                rect.width,
+                rect.height,
+                radii,
+                anti_alias,
+            );
+            let inner_coverage =
+                rounded_rect_bounds_coverage_with_antialias(inner, x, y, inner_radii, anti_alias);
             let coverage = multiply_coverage(
                 outer_coverage.saturating_sub(inner_coverage),
                 clip.coverage(x, y),

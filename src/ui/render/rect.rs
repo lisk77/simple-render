@@ -266,6 +266,11 @@ impl Rect {
         self
     }
 
+    pub fn anti_alias(mut self, anti_alias: AntiAlias) -> Self {
+        self.style.anti_alias = anti_alias;
+        self
+    }
+
     pub fn transform(mut self, transform: PaintTransform) -> Self {
         self.style.transform = transform;
         self
@@ -850,6 +855,7 @@ impl Rect {
                     paint,
                     gradient: element.style.gradient,
                     radii,
+                    anti_alias: element.style.anti_alias,
                 },
                 fonts,
             );
@@ -866,6 +872,7 @@ impl Rect {
                     gradient: border.gradient,
                     widths: state.border_widths(border_widths(border)),
                     radii,
+                    anti_alias: element.style.anti_alias,
                 },
                 fonts,
             );

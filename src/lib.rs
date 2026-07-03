@@ -10,11 +10,12 @@ pub use animation::{
 };
 pub use memory::{trim_free_heap_pages, tune_allocator_for_low_memory};
 pub use ui::{
-    Align, Border, BorderWidth, Bounds, Clip, Color, ColorParseError, Content, CornerRadius,
-    Direction, DrawCommand, FontCtx, FontCtxOptions, FontSource, GradientDirection, Hit, Image,
-    ImageFilter, ImageFit, ImagePixels, Inset, LazyFontCtx, Length, MeasuredSize, Overflow, Paint,
-    PaintTransform, Position, Rect, RectLayout, RectStyle, RgbaImageSource, RichText, RoundedClip,
-    Spacing, Style, Surface, Text, TextOverflow, TextRun, TextStyle, TextWrap, Ui,
+    Align, AntiAlias, Border, BorderWidth, Bounds, Clip, Color, ColorParseError, Content,
+    CornerRadius, Direction, DrawCommand, FontCtx, FontCtxOptions, FontSource, GradientDirection,
+    Hit, Image, ImageFilter, ImageFit, ImagePixels, Inset, LazyFontCtx, Length, MeasuredSize,
+    Overflow, Paint, PaintTransform, Position, Rect, RectLayout, RectStyle, RgbaImageSource,
+    RichText, RoundedClip, Spacing, Style, Surface, Text, TextOverflow, TextRun, TextStyle,
+    TextWrap, Ui,
 };
 pub use wayland::{
     Anchor, Canvas, DEFAULT_SURFACE_ID, DamageRect, FrameAction, InputAction,

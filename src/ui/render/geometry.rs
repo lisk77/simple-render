@@ -4,22 +4,24 @@ pub(super) fn multiply_coverage(a: u8, b: u8) -> u8 {
     ((u16::from(a) * u16::from(b)) / 255) as u8
 }
 
-pub(super) fn rounded_rect_bounds_coverage(
+pub(super) fn rounded_rect_bounds_coverage_with_antialias(
     bounds: Bounds,
     x: u32,
     y: u32,
     radii: CornerRadius,
+    anti_alias: AntiAlias,
 ) -> u8 {
     if x < bounds.x || y < bounds.y || x >= bounds.right() || y >= bounds.bottom() {
         return 0;
     }
 
-    rounded_rect_coverage(
+    rounded_rect_coverage_with_antialias(
         x - bounds.x,
         y - bounds.y,
         bounds.width,
         bounds.height,
         radii,
+        anti_alias,
     )
 }
 
@@ -175,4 +177,20 @@ fn corner_coverage(x: u32, y: u32, center_x: u32, center_y: u32, radius: u32) ->
     }
 
     (covered * 255 / 16) as u8
+}
+
+pub(super) fn rounded_rect_coverage_with_antialias(
+    x: u32,
+    y: u32,
+    width: u32,
+    height: u32,
+    radii: CornerRadius,
+    anti_alias: AntiAlias,
+) -> u8 {
+    match anti_alias {
+        AntiAlias::On => rounded_rect_coverage(x, y, width, height, radii),
+        AntiAlias::Off => rounded_rect_contains(x, y, width, height, radii)
+            .then_some(255)
+            .unwrap_or(0),
+    }
 }

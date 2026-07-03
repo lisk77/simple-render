@@ -42,6 +42,13 @@ pub struct Border {
     pub gradient: GradientDirection,
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum AntiAlias {
+    #[default]
+    On,
+    Off,
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct Style {
     pub background: Option<Paint>,
@@ -51,6 +58,7 @@ pub struct Style {
     pub gradient: GradientDirection,
     pub opacity: f32,
     pub transform: PaintTransform,
+    pub anti_alias: AntiAlias,
 }
 
 impl Default for Style {
@@ -63,6 +71,7 @@ impl Default for Style {
             gradient: GradientDirection::default(),
             opacity: 1.0,
             transform: PaintTransform::IDENTITY,
+            anti_alias: AntiAlias::On,
         }
     }
 }
@@ -77,6 +86,7 @@ impl Style {
             gradient: GradientDirection::default(),
             opacity: 1.0,
             transform: PaintTransform::IDENTITY,
+            anti_alias: AntiAlias::On,
         }
     }
 }
