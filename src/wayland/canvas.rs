@@ -83,6 +83,23 @@ impl<'a> Canvas<'a> {
         self.damage_all();
     }
 
+    pub fn clear_rect(&mut self, rect: DamageRect, rgba: [u8; 4]) {
+        let Some(rect) = rect.clamp(self.width, self.height) else {
+            return;
+        };
+        let bgra = rgba_to_bgra(rgba);
+        let left = (rect.x * 4) as usize;
+        let row_len = (rect.width * 4) as usize;
+        for y in rect.y..rect.bottom() {
+            let start = (y * self.stride) as usize + left;
+            let end = start + row_len;
+            for pixel in self.pixels[start..end].chunks_exact_mut(4) {
+                pixel.copy_from_slice(&bgra);
+            }
+        }
+        self.damage_rect(rect);
+    }
+
     pub fn put_pixel(&mut self, x: u32, y: u32, rgba: [u8; 4]) {
         if x >= self.width || y >= self.height {
             return;
