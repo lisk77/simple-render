@@ -2,6 +2,7 @@ use super::*;
 
 #[derive(Clone)]
 pub struct Rect {
+    pub(super) id: Option<WidgetId>,
     pub(super) layer_options: LayerOptions,
     pub(super) width: Length,
     pub(super) height: Length,
@@ -77,6 +78,7 @@ impl VisualState {
 impl Default for Rect {
     fn default() -> Self {
         Self {
+            id: None,
             layer_options: LayerOptions::default(),
             width: Length::Fit,
             height: Length::Fit,
@@ -118,6 +120,7 @@ impl Rect {
     }
 
     pub fn with_layout(mut self, layout: RectLayout) -> Self {
+        self.id = layout.id;
         if let Some(surface) = layout.surface {
             self.layer_options = surface.into();
         }
@@ -146,6 +149,11 @@ impl Rect {
 
     pub fn style(mut self, style: RectStyle) -> Self {
         self.style = style;
+        self
+    }
+
+    pub fn id(mut self, id: impl Into<WidgetId>) -> Self {
+        self.id = Some(id.into());
         self
     }
 
@@ -415,8 +423,7 @@ impl Rect {
         fonts: &mut FontCtx,
     ) -> Option<Hit> {
         let mut path = Vec::new();
-        self.hit_test_path_with_fonts(bounds, x, y, fonts, &mut path)
-            .map(|bounds| Hit { path, bounds })
+        self.hit_test_detailed_with_fonts(bounds, x, y, fonts, &mut path)
     }
 
     pub fn hit_test_path(
@@ -438,6 +445,18 @@ impl Rect {
         fonts: &mut FontCtx,
         path: &mut Vec<usize>,
     ) -> Option<Bounds> {
+        self.hit_test_detailed_with_fonts(bounds, x, y, fonts, path)
+            .map(|hit| hit.bounds)
+    }
+
+    fn hit_test_detailed_with_fonts(
+        &self,
+        bounds: Bounds,
+        x: f64,
+        y: f64,
+        fonts: &mut FontCtx,
+        path: &mut Vec<usize>,
+    ) -> Option<Hit> {
         path.clear();
         let Some((x, y)) = hit_point(x, y) else {
             fonts.trim_scratch();
@@ -445,6 +464,7 @@ impl Rect {
         };
 
         let mut current_path = Vec::new();
+        let mut hit_id = None;
         let bounds = Self::hit_test_layout(
             self,
             bounds,
@@ -456,9 +476,14 @@ impl Rect {
             y,
             &mut current_path,
             path,
+            &mut hit_id,
         );
         fonts.trim_scratch();
-        bounds
+        bounds.map(|bounds| Hit {
+            path: path.clone(),
+            id: hit_id,
+            bounds,
+        })
     }
 
     pub fn paint(&mut self, canvas: &mut Canvas<'_>) {
@@ -964,6 +989,7 @@ impl Rect {
         y: u32,
         current_path: &mut Vec<usize>,
         hit_path: &mut Vec<usize>,
+        hit_id: &mut Option<WidgetId>,
     ) -> Option<Bounds> {
         let measured = if element_needs_measure(element) {
             premeasured
@@ -1022,6 +1048,7 @@ impl Rect {
                     y,
                     current_path,
                     hit_path,
+                    hit_id,
                 ) {
                     hit = Some(bounds);
                 }
@@ -1038,6 +1065,7 @@ impl Rect {
         if hit_clip.contains(x, y) {
             hit_path.clear();
             hit_path.extend_from_slice(current_path);
+            *hit_id = element.id.clone();
             Some(visual_rect)
         } else {
             None

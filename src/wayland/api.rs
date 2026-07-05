@@ -1,5 +1,6 @@
 use super::*;
 use crate::animation::Animation;
+use crate::input::KeyboardEvent;
 use std::sync::mpsc::{self, Receiver, SendError, Sender};
 
 pub type Result<T> = std::result::Result<T, Box<dyn Error>>;
@@ -364,6 +365,10 @@ pub trait Renderer: 'static {
     fn output_removed(&mut self, _: RenderOutput) {}
 
     fn pointer_event(&mut self, _: PointerEvent) -> InputAction {
+        InputAction::Ignore
+    }
+
+    fn keyboard_event(&mut self, _: KeyboardEvent) -> InputAction {
         InputAction::Ignore
     }
 }

@@ -1,5 +1,6 @@
 use super::runtime::State;
 use super::*;
+use crate::input::{KeyState, KeyboardEvent, KeyboardEventKind, KeyboardModifiers};
 
 impl<R> CompositorHandler for State<R>
 where
@@ -165,6 +166,9 @@ impl<R: Renderer> SeatHandler for State<R> {
         if capability == Capability::Pointer && self.pointer.is_none() {
             self.pointer = self.seat_state.get_pointer(qh, &seat).ok();
         }
+        if capability == Capability::Keyboard && self.keyboard.is_none() {
+            self.keyboard = self.seat_state.get_keyboard(qh, &seat, None).ok();
+        }
     }
 
     fn remove_capability(
@@ -176,6 +180,10 @@ impl<R: Renderer> SeatHandler for State<R> {
     ) {
         if capability == Capability::Pointer {
             self.pointer.take();
+        }
+        if capability == Capability::Keyboard {
+            self.keyboard.take().map(|keyboard| keyboard.release());
+            self.keyboard_focus = None;
         }
     }
 
@@ -197,6 +205,141 @@ impl<R: Renderer> PointerHandler for State<R> {
             let event = pointer_event_from_sctk(id, event);
             let action = self.renderer.pointer_event(event);
             self.handle_input_action(qh, id, action);
+        }
+    }
+}
+
+impl<R: Renderer> KeyboardHandler for State<R> {
+    fn enter(
+        &mut self,
+        _: &Connection,
+        qh: &QueueHandle<Self>,
+        _: &wl_keyboard::WlKeyboard,
+        surface: &wl_surface::WlSurface,
+        serial: u32,
+        raw: &[u32],
+        keysyms: &[Keysym],
+    ) {
+        let id = self.surface_id_for_wl_surface(surface);
+        self.keyboard_focus = id;
+        let event = KeyboardEvent {
+            surface: id,
+            time: None,
+            serial: Some(serial),
+            kind: KeyboardEventKind::Enter {
+                pressed_keycodes: raw.to_vec(),
+                pressed_keysyms: keysyms.iter().map(|keysym| keysym.raw()).collect(),
+            },
+        };
+        let action = self.renderer.keyboard_event(event);
+        self.handle_keyboard_input_action(qh, id, action);
+    }
+
+    fn leave(
+        &mut self,
+        _: &Connection,
+        qh: &QueueHandle<Self>,
+        _: &wl_keyboard::WlKeyboard,
+        surface: &wl_surface::WlSurface,
+        serial: u32,
+    ) {
+        let id = self.surface_id_for_wl_surface(surface);
+        if self.keyboard_focus == id {
+            self.keyboard_focus = None;
+        }
+        let event = KeyboardEvent {
+            surface: id,
+            time: None,
+            serial: Some(serial),
+            kind: KeyboardEventKind::Leave,
+        };
+        let action = self.renderer.keyboard_event(event);
+        self.handle_keyboard_input_action(qh, id, action);
+    }
+
+    fn press_key(
+        &mut self,
+        _: &Connection,
+        qh: &QueueHandle<Self>,
+        _: &wl_keyboard::WlKeyboard,
+        serial: u32,
+        event: SctkKeyEvent,
+    ) {
+        self.handle_key_event(qh, serial, KeyState::Pressed, event);
+    }
+
+    fn release_key(
+        &mut self,
+        _: &Connection,
+        qh: &QueueHandle<Self>,
+        _: &wl_keyboard::WlKeyboard,
+        serial: u32,
+        event: SctkKeyEvent,
+    ) {
+        self.handle_key_event(qh, serial, KeyState::Released, event);
+    }
+
+    fn update_modifiers(
+        &mut self,
+        _: &Connection,
+        qh: &QueueHandle<Self>,
+        _: &wl_keyboard::WlKeyboard,
+        serial: u32,
+        modifiers: SctkModifiers,
+        layout: u32,
+    ) {
+        let id = self.keyboard_focus;
+        let event = KeyboardEvent {
+            surface: id,
+            time: None,
+            serial: Some(serial),
+            kind: KeyboardEventKind::Modifiers {
+                modifiers: keyboard_modifiers_from_sctk(modifiers),
+                layout,
+            },
+        };
+        let action = self.renderer.keyboard_event(event);
+        self.handle_keyboard_input_action(qh, id, action);
+    }
+}
+
+impl<R: Renderer> State<R> {
+    fn handle_key_event(
+        &mut self,
+        qh: &QueueHandle<Self>,
+        serial: u32,
+        state: KeyState,
+        event: SctkKeyEvent,
+    ) {
+        let id = self.keyboard_focus;
+        let event = KeyboardEvent {
+            surface: id,
+            time: Some(event.time),
+            serial: Some(serial),
+            kind: KeyboardEventKind::Key {
+                state,
+                raw_code: event.raw_code,
+                keysym: event.keysym.raw(),
+                utf8: event.utf8,
+            },
+        };
+        let action = self.renderer.keyboard_event(event);
+        self.handle_keyboard_input_action(qh, id, action);
+    }
+
+    fn handle_keyboard_input_action(
+        &mut self,
+        qh: &QueueHandle<Self>,
+        id: Option<SurfaceId>,
+        action: InputAction,
+    ) {
+        if let Some(id) = id {
+            self.handle_input_action(qh, id, action);
+            return;
+        }
+
+        if action == InputAction::Exit {
+            self.running = false;
         }
     }
 }
@@ -283,10 +426,22 @@ fn pointer_axis_source_from_sctk(source: wl_pointer::AxisSource) -> PointerAxisS
     }
 }
 
+fn keyboard_modifiers_from_sctk(modifiers: SctkModifiers) -> KeyboardModifiers {
+    KeyboardModifiers {
+        ctrl: modifiers.ctrl,
+        alt: modifiers.alt,
+        shift: modifiers.shift,
+        caps_lock: modifiers.caps_lock,
+        logo: modifiers.logo,
+        num_lock: modifiers.num_lock,
+    }
+}
+
 delegate_compositor!(@<R: Renderer> State<R>);
 delegate_output!(@<R: Renderer> State<R>);
 delegate_seat!(@<R: Renderer> State<R>);
 delegate_pointer!(@<R: Renderer> State<R>);
+delegate_keyboard!(@<R: Renderer> State<R>);
 delegate_shm!(@<R: Renderer> State<R>);
 delegate_layer!(@<R: Renderer> State<R>);
 delegate_registry!(@<R: Renderer> State<R>);

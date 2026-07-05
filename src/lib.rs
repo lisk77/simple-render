@@ -1,4 +1,5 @@
 mod animation;
+mod input;
 mod memory;
 mod ui;
 mod wayland;
@@ -7,6 +8,10 @@ pub use animation::{
     Animation, AnimationFrame, BoundsTransition, BoundsTransitionFrame, Easing, Edge, Offset,
     VisualEffect, VisualTransition, VisualTransitionFrame, lerp_bounds, lerp_color, lerp_f32,
     lerp_i32, lerp_inset, lerp_spacing, lerp_u32,
+};
+pub use input::{
+    InputState, KeyState, KeyboardEvent, KeyboardEventKind, KeyboardModifiers, KeyboardState,
+    PointerState, UiContext, WidgetId, WidgetInteraction,
 };
 pub use memory::{trim_free_heap_pages, tune_allocator_for_low_memory};
 pub use ui::{

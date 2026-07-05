@@ -159,11 +159,13 @@ impl From<Size> for MeasuredSize {
 pub struct Hit {
     /// Child-index path from the root to the hit element. The root element is an empty path.
     pub path: Vec<usize>,
+    pub id: Option<WidgetId>,
     pub bounds: Bounds,
 }
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct RectLayout {
+    pub id: Option<WidgetId>,
     pub surface: Option<Surface>,
     pub width: Length,
     pub height: Length,
@@ -188,6 +190,7 @@ pub struct RectLayout {
 impl Default for RectLayout {
     fn default() -> Self {
         Self {
+            id: None,
             surface: None,
             width: Length::Fit,
             height: Length::Fit,

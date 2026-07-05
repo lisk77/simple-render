@@ -6,6 +6,7 @@ use cosmic_text::{
     UnderlineStyle, Weight, Wrap, fontdb,
 };
 
+use crate::input::WidgetId;
 use crate::wayland::{
     self, Anchor, Canvas, DamageRect, FrameAction, KeyboardInteractivity, Layer, LayerOptions,
     Margins, OutputTarget, RenderContext, Renderer, SurfaceId,
