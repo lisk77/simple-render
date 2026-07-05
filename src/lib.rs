@@ -3,6 +3,7 @@ mod input;
 mod memory;
 mod ui;
 mod wayland;
+mod widgets;
 
 pub use animation::{
     Animation, AnimationFrame, BoundsTransition, BoundsTransitionFrame, Easing, Edge, Offset,
@@ -28,4 +29,8 @@ pub use wayland::{
     PointerAxisSource, PointerButtonState, PointerEvent, PointerEventKind, RenderCommand,
     RenderContext, RenderController, RenderOutput, RenderReceiver, RenderSendError, RenderSender,
     RenderSurfaceState, Renderer, Result, SurfaceId, channel, controller, run, run_surfaces,
+};
+pub use widgets::{
+    Button, ButtonStyle, Checkbox, CheckboxStyle, ProgressBar, ProgressBarStyle, Slider,
+    SliderStyle, Toggle, ToggleStyle, WidgetAction, WidgetValueAction,
 };

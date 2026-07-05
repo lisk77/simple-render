@@ -471,6 +471,8 @@ impl Rect {
             Clip::rect(bounds),
             VisualState::IDENTITY,
             None,
+            None,
+            None,
             fonts,
             x,
             y,
@@ -984,6 +986,8 @@ impl Rect {
         clip: Clip,
         state: VisualState,
         premeasured: Option<Size>,
+        inherited_id: Option<WidgetId>,
+        inherited_id_bounds: Option<Bounds>,
         fonts: &mut FontCtx,
         x: u32,
         y: u32,
@@ -1022,6 +1026,13 @@ impl Rect {
         let clip = clip.intersect_bounds(visual_rect)?;
         let content_rect = rect.inset(element.padding);
         let visual_content_rect = state.bounds(content_rect)?;
+        let has_own_id = element.id.is_some();
+        let current_id = element.id.clone().or(inherited_id);
+        let current_id_bounds = if has_own_id {
+            Some(visual_rect)
+        } else {
+            inherited_id_bounds
+        };
         let child_clip = match element.overflow {
             Overflow::Clip => clip.with_rounded_rect(
                 visual_content_rect,
@@ -1043,6 +1054,8 @@ impl Rect {
                     child_clip,
                     state,
                     Some(measured),
+                    current_id.clone(),
+                    current_id_bounds,
                     fonts,
                     x,
                     y,
@@ -1065,8 +1078,8 @@ impl Rect {
         if hit_clip.contains(x, y) {
             hit_path.clear();
             hit_path.extend_from_slice(current_path);
-            *hit_id = element.id.clone();
-            Some(visual_rect)
+            *hit_id = current_id;
+            Some(current_id_bounds.unwrap_or(visual_rect))
         } else {
             None
         }

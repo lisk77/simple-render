@@ -362,9 +362,12 @@ where
     ) {
         match action {
             InputAction::Ignore => {}
-            InputAction::Redraw => self.draw(qh, id, None),
+            InputAction::Redraw => {
+                if let Some(surface) = self.surfaces.get_mut(&id) {
+                    surface.request_frame(qh);
+                }
+            }
             InputAction::Animate => {
-                self.draw(qh, id, None);
                 if let Some(surface) = self.surfaces.get_mut(&id) {
                     surface.request_frame(qh);
                 }
