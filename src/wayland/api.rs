@@ -1,6 +1,7 @@
 use super::*;
 use crate::animation::Animation;
 use crate::input::KeyboardEvent;
+use crate::ui::Bounds;
 use std::sync::mpsc::{self, Receiver, SendError, Sender};
 
 pub type Result<T> = std::result::Result<T, Box<dyn Error>>;
@@ -44,6 +45,10 @@ impl RenderController {
         self.send(RenderCommand::Redraw)
     }
 
+    pub fn redraw_region(&self, repaint: Bounds) -> std::result::Result<(), RenderSendError> {
+        self.send(RenderCommand::RedrawRegion { repaint })
+    }
+
     pub fn resize(&self, width: u32, height: u32) -> std::result::Result<(), RenderSendError> {
         self.send(RenderCommand::Resize { width, height })
     }
@@ -70,6 +75,14 @@ impl RenderController {
 
     pub fn redraw_surface(&self, id: SurfaceId) -> std::result::Result<(), RenderSendError> {
         self.send(RenderCommand::RedrawSurface { id })
+    }
+
+    pub fn redraw_surface_region(
+        &self,
+        id: SurfaceId,
+        repaint: Bounds,
+    ) -> std::result::Result<(), RenderSendError> {
+        self.send(RenderCommand::RedrawSurfaceRegion { id, repaint })
     }
 
     pub fn resize_surface(
@@ -201,6 +214,9 @@ pub struct RenderSurfaceState {
 #[derive(Debug, Clone)]
 pub enum RenderCommand {
     Redraw,
+    RedrawRegion {
+        repaint: Bounds,
+    },
     Resize {
         width: u32,
         height: u32,
@@ -216,6 +232,10 @@ pub enum RenderCommand {
     },
     RedrawSurface {
         id: SurfaceId,
+    },
+    RedrawSurfaceRegion {
+        id: SurfaceId,
+        repaint: Bounds,
     },
     ResizeSurface {
         id: SurfaceId,
@@ -264,6 +284,7 @@ pub enum RenderCommand {
 pub enum InputAction {
     Ignore,
     Redraw,
+    RedrawRegion(Bounds),
     Animate,
     Exit,
 }
@@ -323,7 +344,7 @@ pub enum FrameAction {
     Exit,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct RenderContext {
     /// Surface width in logical pixels.
     pub width: u32,
@@ -331,11 +352,16 @@ pub struct RenderContext {
     pub height: u32,
     /// Integer Wayland buffer scale used for the current frame.
     pub scale: u32,
+    /// Effective logical-to-buffer scale used for painting.
+    pub scale_factor: f32,
     /// Backing buffer width in physical pixels.
     pub buffer_width: u32,
     /// Backing buffer height in physical pixels.
     pub buffer_height: u32,
     pub frame_time: Option<u32>,
+    /// Logical surface region that needs repainting, when the runtime can safely
+    /// preserve pixels outside this region.
+    pub repaint: Option<Bounds>,
 }
 
 pub trait Renderer: 'static {
@@ -357,6 +383,16 @@ pub trait Renderer: 'static {
     }
 
     fn configured_surface(&mut self, _: SurfaceId, _: u32, _: u32) {}
+
+    fn idle(&mut self) {}
+
+    fn idle_surface(&mut self, _: SurfaceId) {
+        self.idle();
+    }
+
+    fn input_regions(&mut self, _: SurfaceId, _: RenderContext) -> Option<Vec<Bounds>> {
+        None
+    }
 
     fn output_added(&mut self, _: RenderOutput) {}
 

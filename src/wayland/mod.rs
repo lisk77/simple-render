@@ -1,17 +1,28 @@
 use std::{error::Error, fmt};
 
 use smithay_client_toolkit::{
-    compositor::{CompositorHandler, CompositorState},
+    compositor::{CompositorHandler, CompositorState, Region},
     delegate_compositor, delegate_keyboard, delegate_layer, delegate_output, delegate_pointer,
     delegate_registry, delegate_seat, delegate_shm,
+    globals::GlobalData,
     output::{OutputHandler, OutputState},
     reexports::{
         calloop::{EventLoop, channel as calloop_channel, channel::Event as ChannelEvent},
         calloop_wayland_source::WaylandSource,
         client::{
-            Connection, QueueHandle,
+            Connection, Dispatch, Proxy, QueueHandle,
             globals::registry_queue_init,
             protocol::{wl_keyboard, wl_output, wl_pointer, wl_seat, wl_shm, wl_surface},
+        },
+        protocols::wp::{
+            fractional_scale::v1::client::{
+                wp_fractional_scale_manager_v1::WpFractionalScaleManagerV1,
+                wp_fractional_scale_v1::{Event as WpFractionalScaleEvent, WpFractionalScaleV1},
+            },
+            viewporter::client::{
+                wp_viewport::{self, WpViewport},
+                wp_viewporter::WpViewporter,
+            },
         },
     },
     registry::{ProvidesRegistryState, RegistryState},

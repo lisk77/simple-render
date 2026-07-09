@@ -85,13 +85,17 @@ pub enum KeyboardInteractivity {
 pub enum Anchor {
     Center,
     Top,
+    TopFill,
     TopLeft,
     TopRight,
     Bottom,
+    BottomFill,
     BottomLeft,
     BottomRight,
     Left,
+    LeftFill,
     Right,
+    RightFill,
     Fill,
     Position { x: i32, y: i32 },
 }

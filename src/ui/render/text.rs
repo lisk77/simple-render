@@ -204,6 +204,20 @@ pub(super) fn fill_rounded_rect(
     else {
         return;
     };
+
+    if radii.is_zero()
+        && clip.is_rect()
+        && let Paint::Solid(color) = paint
+        && let Some(target_x) = target_coord(draw.x, offset.x, canvas.width())
+        && let Some(target_y) = target_coord(draw.y, offset.y, canvas.height())
+    {
+        canvas.blend_rect(
+            DamageRect::new(target_x, target_y, draw.width, draw.height),
+            color_with_opacity_and_coverage(*color, opacity, 255),
+        );
+        return;
+    }
+
     for y in draw.y..draw.bottom() {
         for x in draw.x..draw.right() {
             let shape_coverage = rounded_rect_coverage_with_antialias(

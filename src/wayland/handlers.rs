@@ -1,4 +1,4 @@
-use super::runtime::State;
+use super::runtime::{FractionalScaleSurface, State};
 use super::*;
 use crate::input::{KeyState, KeyboardEvent, KeyboardEventKind, KeyboardModifiers};
 
@@ -20,7 +20,7 @@ where
             return;
         };
         if surface.set_scale(new_factor.max(1) as u32) {
-            self.draw(qh, id, None);
+            self.draw(qh, id, None, None);
         }
     }
 
@@ -47,7 +47,8 @@ where
             return;
         };
         surface.frame_pending = false;
-        self.draw(qh, id, Some(time));
+        let repaint = surface.take_pending_repaint();
+        self.draw(qh, id, Some(time), repaint);
     }
 
     fn surface_enter(
@@ -105,13 +106,73 @@ where
         surface.configured = true;
         self.renderer
             .configured_surface(id, surface.width, surface.height);
-        self.draw(qh, id, None);
+        self.draw(qh, id, None, None);
     }
 }
 
 impl<R: Renderer> ShmHandler for State<R> {
     fn shm_state(&mut self) -> &mut Shm {
         &mut self.shm
+    }
+}
+
+impl<R: Renderer> Dispatch<WpViewporter, GlobalData> for State<R> {
+    fn event(
+        _: &mut Self,
+        _: &WpViewporter,
+        _: <WpViewporter as Proxy>::Event,
+        _: &GlobalData,
+        _: &Connection,
+        _: &QueueHandle<Self>,
+    ) {
+    }
+}
+
+impl<R: Renderer> Dispatch<WpViewport, GlobalData> for State<R> {
+    fn event(
+        _: &mut Self,
+        _: &WpViewport,
+        _: wp_viewport::Event,
+        _: &GlobalData,
+        _: &Connection,
+        _: &QueueHandle<Self>,
+    ) {
+    }
+}
+
+impl<R: Renderer> Dispatch<WpFractionalScaleManagerV1, GlobalData> for State<R> {
+    fn event(
+        _: &mut Self,
+        _: &WpFractionalScaleManagerV1,
+        _: <WpFractionalScaleManagerV1 as Proxy>::Event,
+        _: &GlobalData,
+        _: &Connection,
+        _: &QueueHandle<Self>,
+    ) {
+    }
+}
+
+impl<R: Renderer> Dispatch<WpFractionalScaleV1, FractionalScaleSurface> for State<R> {
+    fn event(
+        state: &mut Self,
+        _: &WpFractionalScaleV1,
+        event: <WpFractionalScaleV1 as Proxy>::Event,
+        data: &FractionalScaleSurface,
+        _: &Connection,
+        qh: &QueueHandle<Self>,
+    ) {
+        let WpFractionalScaleEvent::PreferredScale { scale } = event else {
+            return;
+        };
+        let Some(id) = state.surface_id_for_wl_surface(&data.surface) else {
+            return;
+        };
+        let Some(surface) = state.surfaces.get_mut(&id) else {
+            return;
+        };
+        if surface.set_fractional_scale(scale) && surface.configured {
+            state.draw(qh, id, None, None);
+        }
     }
 }
 
@@ -129,11 +190,32 @@ impl<R: Renderer> OutputHandler for State<R> {
     fn update_output(
         &mut self,
         _: &Connection,
-        _: &QueueHandle<Self>,
+        qh: &QueueHandle<Self>,
         output: wl_output::WlOutput,
     ) {
         if let Some(output) = self.render_output(&output) {
+            let output_id = output.id;
+            let output_name = output.name.clone();
+            let output_scale = output.scale_factor.max(1) as u32;
+            let redraw_surfaces: Vec<_> = self
+                .surfaces
+                .iter_mut()
+                .filter_map(|(id, surface)| {
+                    let matches_output = match &surface.output {
+                        Some(OutputTarget::Id(target_id)) => *target_id == output_id,
+                        Some(OutputTarget::Name(target_name)) => {
+                            output_name.as_ref() == Some(target_name)
+                        }
+                        None | Some(OutputTarget::Any) => false,
+                    };
+                    (matches_output && surface.set_scale(output_scale) && surface.configured)
+                        .then_some(*id)
+                })
+                .collect();
             self.renderer.output_updated(output);
+            for id in redraw_surfaces {
+                self.draw(qh, id, None, None);
+            }
         }
     }
 

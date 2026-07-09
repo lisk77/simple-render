@@ -76,7 +76,7 @@ impl<'a> Canvas<'a> {
     }
 
     pub fn clear(&mut self, rgba: [u8; 4]) {
-        let bgra = rgba_to_bgra(rgba);
+        let bgra = rgba_to_premultiplied_bgra(rgba);
         for pixel in self.pixels.chunks_exact_mut(4) {
             pixel.copy_from_slice(&bgra);
         }
@@ -87,7 +87,7 @@ impl<'a> Canvas<'a> {
         let Some(rect) = rect.clamp(self.width, self.height) else {
             return;
         };
-        let bgra = rgba_to_bgra(rgba);
+        let bgra = rgba_to_premultiplied_bgra(rgba);
         let left = (rect.x * 4) as usize;
         let row_len = (rect.width * 4) as usize;
         for y in rect.y..rect.bottom() {
@@ -100,13 +100,40 @@ impl<'a> Canvas<'a> {
         self.damage_rect(rect);
     }
 
+    pub fn blend_rect(&mut self, rect: DamageRect, rgba: [u8; 4]) {
+        if rgba[3] == 0 {
+            return;
+        }
+        let Some(rect) = rect.clamp(self.width, self.height) else {
+            return;
+        };
+
+        let bgra = rgba_to_premultiplied_bgra(rgba);
+        let left = (rect.x * 4) as usize;
+        let row_len = (rect.width * 4) as usize;
+        for y in rect.y..rect.bottom() {
+            let start = (y * self.stride) as usize + left;
+            let end = start + row_len;
+            if rgba[3] == 255 {
+                for pixel in self.pixels[start..end].chunks_exact_mut(4) {
+                    pixel.copy_from_slice(&bgra);
+                }
+            } else {
+                for pixel in self.pixels[start..end].chunks_exact_mut(4) {
+                    blend_bgra_pixel(pixel, bgra);
+                }
+            }
+        }
+        self.damage_rect(rect);
+    }
+
     pub fn put_pixel(&mut self, x: u32, y: u32, rgba: [u8; 4]) {
         if x >= self.width || y >= self.height {
             return;
         }
 
         let index = ((y * self.stride) + (x * 4)) as usize;
-        self.pixels[index..index + 4].copy_from_slice(&rgba_to_bgra(rgba));
+        self.pixels[index..index + 4].copy_from_slice(&rgba_to_premultiplied_bgra(rgba));
         self.damage_rect(DamageRect::new(x, y, 1, 1));
     }
 
@@ -116,13 +143,12 @@ impl<'a> Canvas<'a> {
         }
 
         let index = ((y * self.stride) + (x * 4)) as usize;
-        let background = bgra_to_rgba([
-            self.pixels[index],
-            self.pixels[index + 1],
-            self.pixels[index + 2],
-            self.pixels[index + 3],
-        ]);
-        self.pixels[index..index + 4].copy_from_slice(&rgba_to_bgra(blend_color(background, rgba)));
+        let bgra = rgba_to_premultiplied_bgra(rgba);
+        if rgba[3] == 255 {
+            self.pixels[index..index + 4].copy_from_slice(&bgra);
+        } else {
+            blend_bgra_pixel(&mut self.pixels[index..index + 4], bgra);
+        }
         self.damage_rect(DamageRect::new(x, y, 1, 1));
     }
 
@@ -215,40 +241,81 @@ impl DamageRect {
     }
 }
 
-fn rgba_to_bgra([red, green, blue, alpha]: [u8; 4]) -> [u8; 4] {
-    [blue, green, red, alpha]
+fn rgba_to_premultiplied_bgra([red, green, blue, alpha]: [u8; 4]) -> [u8; 4] {
+    [
+        premultiply(blue, alpha),
+        premultiply(green, alpha),
+        premultiply(red, alpha),
+        alpha,
+    ]
 }
 
-fn bgra_to_rgba([blue, green, red, alpha]: [u8; 4]) -> [u8; 4] {
-    [red, green, blue, alpha]
+fn premultiply(component: u8, alpha: u8) -> u8 {
+    ((u16::from(component) * u16::from(alpha) + 127) / 255) as u8
 }
 
-pub(in crate::wayland) fn blend_color(background: [u8; 4], foreground: [u8; 4]) -> [u8; 4] {
+fn blend_bgra_pixel(background: &mut [u8], foreground: [u8; 4]) {
     let foreground_alpha = u32::from(foreground[3]);
     if foreground_alpha == 0 {
-        return background;
+        return;
     }
     if foreground_alpha == 255 {
-        return foreground;
+        background.copy_from_slice(&foreground);
+        return;
     }
 
     let background_alpha = u32::from(background[3]);
     let inverse_foreground_alpha = 255 - foreground_alpha;
-    let output_alpha = foreground_alpha + background_alpha * inverse_foreground_alpha / 255;
+    let output_alpha = foreground_alpha + mul_div_255(background_alpha, inverse_foreground_alpha);
     if output_alpha == 0 {
-        return [0, 0, 0, 0];
+        background.copy_from_slice(&[0, 0, 0, 0]);
+        return;
     }
 
     let blend_component = |foreground: u8, background: u8| {
-        let foreground = u32::from(foreground) * foreground_alpha;
-        let background = u32::from(background) * background_alpha * inverse_foreground_alpha / 255;
-        ((foreground + background) / output_alpha).min(255) as u8
+        (u32::from(foreground) + mul_div_255(u32::from(background), inverse_foreground_alpha))
+            .min(255) as u8
     };
 
-    [
-        blend_component(foreground[0], background[0]),
-        blend_component(foreground[1], background[1]),
-        blend_component(foreground[2], background[2]),
-        output_alpha.min(255) as u8,
-    ]
+    background[0] = blend_component(foreground[0], background[0]);
+    background[1] = blend_component(foreground[1], background[1]);
+    background[2] = blend_component(foreground[2], background[2]);
+    background[3] = output_alpha.min(255) as u8;
+}
+
+fn mul_div_255(value: u32, alpha: u32) -> u32 {
+    (value * alpha + 127) / 255
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn clear_premultiplies_alpha() {
+        let mut pixels = [0_u8; 4];
+        let mut canvas = Canvas::from_bgra_pixels(&mut pixels, 1, 1, 4, 1).expect("canvas");
+        canvas.clear([255, 255, 255, 128]);
+
+        assert_eq!(canvas.pixels(), &[128, 128, 128, 128]);
+    }
+
+    #[test]
+    fn blend_pixel_stores_premultiplied_color() {
+        let mut pixels = [0_u8; 4];
+        let mut canvas = Canvas::from_bgra_pixels(&mut pixels, 1, 1, 4, 1).expect("canvas");
+        canvas.blend_pixel(0, 0, [255, 255, 255, 128]);
+
+        assert_eq!(canvas.pixels(), &[128, 128, 128, 128]);
+    }
+
+    #[test]
+    fn blend_pixel_uses_premultiplied_over_operator() {
+        let mut pixels = [0_u8; 4];
+        let mut canvas = Canvas::from_bgra_pixels(&mut pixels, 1, 1, 4, 1).expect("canvas");
+        canvas.put_pixel(0, 0, [0, 0, 255, 128]);
+        canvas.blend_pixel(0, 0, [255, 0, 0, 128]);
+
+        assert_eq!(canvas.pixels(), &[64, 0, 128, 192]);
+    }
 }

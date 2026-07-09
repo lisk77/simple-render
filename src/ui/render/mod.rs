@@ -168,6 +168,11 @@ impl FontCtx {
         trim_vec_capacity(&mut self.text_runs, RETAINED_TEXT_RUN_CAPACITY);
         trim_vec_capacity(&mut self.glyphs, RETAINED_GLYPH_CAPACITY);
     }
+
+    pub fn trim_frame_memory(&mut self) {
+        self.clear_raster_cache();
+        self.trim_scratch();
+    }
 }
 
 impl Default for FontCtx {
@@ -196,22 +201,56 @@ struct UiRenderer {
 
 impl Renderer for UiRenderer {
     fn draw(&mut self, canvas: &mut Canvas<'_>, context: RenderContext) -> FrameAction {
-        canvas.clear(Color::TRANSPARENT.into());
         let fonts = self.fonts.get();
-        self.root.paint_scaled_with_fonts(
-            canvas,
-            fonts,
-            context.width,
-            context.height,
-            context.scale,
-        );
-        self.fonts.trim_frame_memory();
+        if let Some(repaint) = context
+            .repaint
+            .and_then(|repaint| repaint.intersect(Bounds::new(0, 0, context.width, context.height)))
+        {
+            canvas.clear_rect(
+                scale_repaint_bounds(repaint, context.scale_factor),
+                Color::TRANSPARENT.into(),
+            );
+            self.root.paint_clipped_scaled_f32_with_fonts(
+                canvas,
+                fonts,
+                context.width,
+                context.height,
+                context.scale_factor,
+                repaint,
+            );
+        } else {
+            canvas.clear(Color::TRANSPARENT.into());
+            self.root.paint_scaled_f32_with_fonts(
+                canvas,
+                fonts,
+                context.width,
+                context.height,
+                context.scale_factor,
+            );
+        }
         FrameAction::Wait
+    }
+
+    fn idle_surface(&mut self, _: SurfaceId) {
+        self.fonts.trim_frame_memory();
     }
 
     fn closed_surface(&mut self, _: SurfaceId) {
         self.fonts.release();
     }
+}
+
+fn scale_repaint_bounds(bounds: Bounds, scale: f32) -> DamageRect {
+    let scale = if scale.is_finite() {
+        scale.max(1.0)
+    } else {
+        1.0
+    };
+    let x = (bounds.x as f32 * scale).floor() as u32;
+    let y = (bounds.y as f32 * scale).floor() as u32;
+    let right = (bounds.x.saturating_add(bounds.width) as f32 * scale).ceil() as u32;
+    let bottom = (bounds.y.saturating_add(bounds.height) as f32 * scale).ceil() as u32;
+    DamageRect::new(x, y, right.saturating_sub(x), bottom.saturating_sub(y))
 }
 
 fn measure_element(

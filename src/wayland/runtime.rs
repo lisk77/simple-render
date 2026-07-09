@@ -1,7 +1,15 @@
 use super::placement::apply_placement;
 use super::*;
 use crate::animation::{Animation, lerp_i32, lerp_u32};
+use crate::ui::Bounds;
+use std::cell::RefCell;
 use std::collections::BTreeMap;
+use std::rc::Rc;
+
+const MAX_REUSABLE_BUFFER_BYTES: usize = 4 * 1024 * 1024;
+const MAX_SPARE_FRAMES: usize = 2;
+const MAX_DAMAGE_HISTORY: usize = MAX_SPARE_FRAMES + 2;
+const FRACTIONAL_SCALE_DENOMINATOR: f32 = 120.0;
 
 pub fn run<R>(renderer: R, options: LayerOptions, receiver: RenderReceiver) -> Result<()>
 where
@@ -42,15 +50,27 @@ where
     let compositor = CompositorState::bind(&globals, &qh)?;
     let layer_shell = LayerShell::bind(&globals, &qh)?;
     let shm = Shm::bind(&globals, &qh)?;
+    let viewporter = globals.bind(&qh, 1..=1, GlobalData).ok();
+    let fractional_scale_manager = globals.bind(&qh, 1..=1, GlobalData).ok();
     let output_state = OutputState::new(&globals, &qh);
     let seat_state = SeatState::new(&globals, &qh);
 
     let mut surfaces = BTreeMap::new();
     if let Some((id, options)) = initial_surface {
         if let Some(output) = resolve_output_target(&output_state, options.output.as_ref()) {
+            let scale = output_initial_scale(&output_state, output.as_ref());
             surfaces.insert(
                 id,
-                RenderSurface::new(&qh, &compositor, &layer_shell, output.as_ref(), &options),
+                RenderSurface::new(
+                    &qh,
+                    &compositor,
+                    &layer_shell,
+                    viewporter.as_ref(),
+                    fractional_scale_manager.as_ref(),
+                    output.as_ref(),
+                    &options,
+                    scale,
+                ),
             );
         }
     }
@@ -61,6 +81,8 @@ where
         compositor,
         layer_shell,
         shm,
+        viewporter,
+        fractional_scale_manager,
         surfaces,
         pointer: None,
         keyboard: None,
@@ -95,6 +117,8 @@ pub(in crate::wayland) struct State<R> {
     compositor: CompositorState,
     layer_shell: LayerShell,
     pub(in crate::wayland) shm: Shm,
+    pub(in crate::wayland) viewporter: Option<WpViewporter>,
+    pub(in crate::wayland) fractional_scale_manager: Option<WpFractionalScaleManagerV1>,
     pub(in crate::wayland) surfaces: BTreeMap<SurfaceId, RenderSurface>,
     pub(in crate::wayland) pointer: Option<wl_pointer::WlPointer>,
     pub(in crate::wayland) keyboard: Option<wl_keyboard::WlKeyboard>,
@@ -111,7 +135,10 @@ where
 {
     fn handle_command(&mut self, qh: &QueueHandle<Self>, command: RenderCommand) {
         match command {
-            RenderCommand::Redraw => self.draw(qh, DEFAULT_SURFACE_ID, None),
+            RenderCommand::Redraw => self.draw(qh, DEFAULT_SURFACE_ID, None, None),
+            RenderCommand::RedrawRegion { repaint } => {
+                self.draw(qh, DEFAULT_SURFACE_ID, None, Some(repaint))
+            }
             RenderCommand::Resize { width, height } => {
                 self.resize_surface(qh, DEFAULT_SURFACE_ID, width, height)
             }
@@ -121,7 +148,10 @@ where
             RenderCommand::SetAnchor(anchor) => self.set_surface_anchor(DEFAULT_SURFACE_ID, anchor),
             RenderCommand::CreateSurface { id, options } => self.create_surface(qh, id, options),
             RenderCommand::DestroySurface { id } => self.destroy_surface(id),
-            RenderCommand::RedrawSurface { id } => self.draw(qh, id, None),
+            RenderCommand::RedrawSurface { id } => self.draw(qh, id, None, None),
+            RenderCommand::RedrawSurfaceRegion { id, repaint } => {
+                self.draw(qh, id, None, Some(repaint))
+            }
             RenderCommand::ResizeSurface { id, width, height } => {
                 self.resize_surface(qh, id, width, height)
             }
@@ -158,6 +188,7 @@ where
         let Some(output) = self.resolve_output_target(options.output.as_ref()) else {
             return;
         };
+        let scale = self.output_initial_scale(output.as_ref());
 
         if let Some(surface) = self.surfaces.get_mut(&id) {
             if surface.output == options.output {
@@ -174,8 +205,11 @@ where
                 qh,
                 &self.compositor,
                 &self.layer_shell,
+                self.viewporter.as_ref(),
+                self.fractional_scale_manager.as_ref(),
                 output.as_ref(),
                 &options,
+                scale,
             ),
         );
     }
@@ -185,6 +219,10 @@ where
         target: Option<&OutputTarget>,
     ) -> Option<Option<wl_output::WlOutput>> {
         resolve_output_target(&self.output_state, target)
+    }
+
+    fn output_initial_scale(&self, output: Option<&wl_output::WlOutput>) -> u32 {
+        output_initial_scale(&self.output_state, output)
     }
 
     fn destroy_surface(&mut self, id: SurfaceId) {
@@ -199,7 +237,7 @@ where
         surface.cancel_animation();
         surface.set_size(width, height);
         if surface.configured {
-            self.draw(qh, id, None);
+            self.draw(qh, id, None, None);
         } else {
             surface.layer.commit();
         }
@@ -280,7 +318,7 @@ where
         match result {
             SurfaceAnimationStart::Animate => {
                 if let Some(surface) = self.surfaces.get_mut(&id) {
-                    surface.request_frame(qh);
+                    surface.request_frame(qh, None);
                 }
             }
             SurfaceAnimationStart::Complete => {
@@ -289,7 +327,7 @@ where
                     .get(&id)
                     .is_some_and(|surface| surface.configured)
                 {
-                    self.draw(qh, id, None);
+                    self.draw(qh, id, None, None);
                 }
             }
             SurfaceAnimationStart::Destroy => {
@@ -311,6 +349,7 @@ where
         qh: &QueueHandle<Self>,
         id: SurfaceId,
         frame_time: Option<u32>,
+        repaint: Option<Bounds>,
     ) {
         let (animation, draw_result) = {
             let Some(surface) = self.surfaces.get_mut(&id) else {
@@ -323,34 +362,47 @@ where
             let animation = frame_time
                 .map(|time| surface.advance_animation(time))
                 .unwrap_or(SurfaceAnimationFrame::Idle);
-            let draw_result = surface.draw(&self.shm, &mut self.renderer, id, frame_time);
+            let animation_next_frame = matches!(animation, SurfaceAnimationFrame::Animate);
+            let draw_result = surface.draw(
+                qh,
+                &self.shm,
+                &self.compositor,
+                &mut self.renderer,
+                id,
+                frame_time,
+                repaint,
+                animation_next_frame,
+            );
             (animation, draw_result)
         };
 
+        let mut idle_surface = false;
+        let mut trim_idle_memory = false;
         match draw_result {
-            DrawResult::Drawn {
-                retired_frame,
-                next_frame,
-            } => {
-                if let Some(frame) = retired_frame {
-                    self.retired_frames.push(frame);
-                }
+            DrawResult::Drawn { next_frame } => {
                 if matches!(animation, SurfaceAnimationFrame::Destroy) {
                     self.remove_surface(id);
                     self.maybe_exit_after_surface_removal();
-                } else if next_frame || matches!(animation, SurfaceAnimationFrame::Animate) {
-                    if let Some(surface) = self.surfaces.get_mut(&id) {
-                        surface.request_frame(qh);
+                } else if let Some(surface) = self.surfaces.get_mut(&id) {
+                    if next_frame || matches!(animation, SurfaceAnimationFrame::Animate) {
+                        surface.retain_animation_buffers();
+                    } else {
+                        surface.release_idle_buffers();
+                        trim_idle_memory = surface.released_idle_memory();
+                        idle_surface = true;
                     }
                 }
             }
-            DrawResult::Exit { retired_frame } => {
-                if let Some(frame) = retired_frame {
-                    self.retired_frames.push(frame);
-                }
+            DrawResult::Exit => {
                 self.remove_surface(id);
                 self.maybe_exit_after_surface_removal();
             }
+        }
+        if idle_surface {
+            self.renderer.idle_surface(id);
+            crate::memory::trim_free_heap_pages();
+        } else if trim_idle_memory {
+            crate::memory::trim_free_heap_pages();
         }
     }
 
@@ -364,12 +416,17 @@ where
             InputAction::Ignore => {}
             InputAction::Redraw => {
                 if let Some(surface) = self.surfaces.get_mut(&id) {
-                    surface.request_frame(qh);
+                    surface.request_frame(qh, None);
+                }
+            }
+            InputAction::RedrawRegion(repaint) => {
+                if let Some(surface) = self.surfaces.get_mut(&id) {
+                    surface.request_frame(qh, Some(repaint));
                 }
             }
             InputAction::Animate => {
                 if let Some(surface) = self.surfaces.get_mut(&id) {
-                    surface.request_frame(qh);
+                    surface.request_frame(qh, None);
                 }
             }
             InputAction::Exit => {
@@ -407,9 +464,7 @@ where
         let Some(mut surface) = self.surfaces.remove(&id) else {
             return;
         };
-        if let Some(frame) = surface.take_frame() {
-            self.retired_frames.push(frame);
-        }
+        self.retired_frames.extend(surface.take_active_frames());
         self.renderer.closed_surface(id);
     }
 
@@ -441,9 +496,14 @@ where
     }
 
     fn collect_released_frames(&mut self) {
+        let mut released_idle_memory = false;
+        for surface in self.surfaces.values_mut() {
+            surface.collect_released_frames();
+            released_idle_memory |= surface.released_idle_memory();
+        }
         let retired_count = self.retired_frames.len();
         self.retired_frames.retain(|frame| !frame.released());
-        if self.retired_frames.len() < retired_count {
+        if self.retired_frames.len() < retired_count || released_idle_memory {
             crate::memory::trim_free_heap_pages();
         }
     }
@@ -473,6 +533,18 @@ fn resolve_output_target(
             })
             .map(Some),
     }
+}
+
+fn output_initial_scale(output_state: &OutputState, output: Option<&wl_output::WlOutput>) -> u32 {
+    output
+        .and_then(|output| output_state.info(output))
+        .map(|info| info.scale_factor.max(1) as u32)
+        .unwrap_or(1)
+}
+
+#[derive(Clone)]
+pub(in crate::wayland) struct FractionalScaleSurface {
+    pub(in crate::wayland) surface: wl_surface::WlSurface,
 }
 
 struct SurfaceAnimation {
@@ -524,16 +596,29 @@ impl Margins {
 
 pub(in crate::wayland) struct RenderSurface {
     pub(in crate::wayland) layer: LayerSurface,
+    viewport: Option<WpViewport>,
+    _fractional_scale: Option<WpFractionalScaleV1>,
     pub(in crate::wayland) configured: bool,
     pub(in crate::wayland) width: u32,
     pub(in crate::wayland) height: u32,
-    output: Option<OutputTarget>,
+    pub(in crate::wayland) output: Option<OutputTarget>,
     layer_kind: Layer,
     scale: u32,
+    fractional_scale_factor: Option<u32>,
     anchor: Anchor,
     margins: Margins,
     animation: Option<SurfaceAnimation>,
+    pool: Option<Rc<RefCell<SlotPool>>>,
+    input_regions: Option<Vec<Bounds>>,
+    input_regions_set: bool,
     frame: Option<Frame>,
+    retired_frames: Vec<Frame>,
+    spare_frames: Vec<Frame>,
+    damage_history: Vec<(u64, Bounds)>,
+    frame_sequence: u64,
+    pending_repaint: Option<Bounds>,
+    retain_spare_frames: bool,
+    released_idle_memory: bool,
     pub(in crate::wayland) frame_pending: bool,
 }
 
@@ -542,8 +627,11 @@ impl RenderSurface {
         qh: &QueueHandle<State<R>>,
         compositor: &CompositorState,
         layer_shell: &LayerShell,
+        viewporter: Option<&WpViewporter>,
+        fractional_scale_manager: Option<&WpFractionalScaleManagerV1>,
         output: Option<&wl_output::WlOutput>,
         options: &LayerOptions,
+        scale: u32,
     ) -> Self {
         let wl_surface = compositor.create_surface(qh);
         let layer = layer_shell.create_layer_surface(
@@ -558,24 +646,54 @@ impl RenderSurface {
         layer.set_size(options.width, options.height);
         apply_placement(&layer, options.anchor, options.margins);
         layer.commit();
+        let viewport = viewporter
+            .map(|viewporter| viewporter.get_viewport(layer.wl_surface(), qh, GlobalData));
+        let fractional_scale = fractional_scale_manager.and_then(|manager| {
+            viewport.as_ref().map(|_| {
+                manager.get_fractional_scale(
+                    layer.wl_surface(),
+                    qh,
+                    FractionalScaleSurface {
+                        surface: layer.wl_surface().clone(),
+                    },
+                )
+            })
+        });
 
         Self {
             layer,
+            viewport,
+            _fractional_scale: fractional_scale,
             configured: false,
             width: options.width,
             height: options.height,
             output: options.output.clone(),
             layer_kind: options.layer,
-            scale: 1,
+            scale: scale.max(1),
+            fractional_scale_factor: None,
             anchor: options.anchor,
             margins: options.margins,
             animation: None,
+            pool: None,
+            input_regions: None,
+            input_regions_set: false,
             frame: None,
+            retired_frames: Vec::new(),
+            spare_frames: Vec::new(),
+            damage_history: Vec::new(),
+            frame_sequence: 0,
+            pending_repaint: None,
+            retain_spare_frames: false,
+            released_idle_memory: false,
             frame_pending: false,
         }
     }
 
     fn set_size(&mut self, width: u32, height: u32) {
+        if self.width != width || self.height != height {
+            self.clear_reusable_buffers();
+            self.pending_repaint = None;
+        }
         self.width = width;
         self.height = height;
         self.layer.set_size(width, height);
@@ -583,11 +701,29 @@ impl RenderSurface {
 
     pub(in crate::wayland) fn set_scale(&mut self, scale: u32) -> bool {
         let scale = scale.max(1);
+        let previous = self.scale_factor();
         if self.scale == scale {
             return false;
         }
 
+        self.clear_reusable_buffers();
+        self.pending_repaint = None;
         self.scale = scale;
+        if (self.scale_factor() - previous).abs() < f32::EPSILON {
+            return false;
+        }
+        true
+    }
+
+    pub(in crate::wayland) fn set_fractional_scale(&mut self, scale: u32) -> bool {
+        let scale = scale.max(1);
+        if self.fractional_scale_factor == Some(scale) {
+            return false;
+        }
+
+        self.clear_reusable_buffers();
+        self.pending_repaint = None;
+        self.fractional_scale_factor = Some(scale);
         true
     }
 
@@ -683,6 +819,21 @@ impl RenderSurface {
         self.animation = None;
     }
 
+    fn buffer_scale(&self) -> u32 {
+        if self.viewport.is_some() {
+            1
+        } else {
+            self.scale.max(1)
+        }
+    }
+
+    fn scale_factor(&self) -> f32 {
+        self.fractional_scale_factor
+            .map(|scale| scale as f32 / FRACTIONAL_SCALE_DENOMINATOR)
+            .unwrap_or_else(|| self.scale.max(1) as f32)
+            .max(1.0)
+    }
+
     fn advance_animation(&mut self, time: u32) -> SurfaceAnimationFrame {
         let Some(mut animation) = self.animation.take() else {
             return SurfaceAnimationFrame::Idle;
@@ -722,17 +873,41 @@ impl RenderSurface {
 
     fn draw<R>(
         &mut self,
+        qh: &QueueHandle<State<R>>,
         shm: &Shm,
+        compositor: &CompositorState,
         renderer: &mut R,
         id: SurfaceId,
         frame_time: Option<u32>,
+        repaint: Option<Bounds>,
+        animation_next_frame: bool,
     ) -> DrawResult
     where
         R: Renderer,
     {
-        let dimensions = BufferDimensions::new(self.width, self.height, self.scale);
-        let (frame, action, damage) = self.draw_frame(shm, renderer, id, frame_time, dimensions);
+        if repaint.is_none() {
+            self.pending_repaint = None;
+        }
+        let dimensions = BufferDimensions::new(
+            self.width,
+            self.height,
+            self.buffer_scale(),
+            self.scale_factor(),
+        );
+        self.set_input_regions_if_changed(
+            compositor,
+            renderer.input_regions(id, dimensions.context(frame_time, None)),
+        );
+        let (frame, action, damage) =
+            self.draw_frame(shm, renderer, id, frame_time, dimensions, repaint);
 
+        let next_frame = matches!(action, FrameAction::Animate) || animation_next_frame;
+        if next_frame {
+            self.pending_repaint = union_optional_bounds(
+                self.pending_repaint,
+                damage.map(|damage| dimensions.logical_damage(damage)),
+            );
+        }
         if let Some(damage) = damage {
             self.layer.wl_surface().damage_buffer(
                 damage.x as i32,
@@ -741,23 +916,67 @@ impl RenderSurface {
                 damage.height as i32,
             );
         }
-        let _ = self.layer.set_buffer_scale(self.scale);
+        if let Some(viewport) = &self.viewport {
+            let _ = self.layer.set_buffer_scale(1);
+            viewport.set_destination(self.width as i32, self.height as i32);
+        } else {
+            let _ = self.layer.set_buffer_scale(self.scale);
+        }
+        if next_frame {
+            self.request_frame_for_commit(qh, None);
+        }
+        let frame = self.record_frame_damage(frame, dimensions, damage);
         frame.attach_to(self.layer.wl_surface());
         self.layer.commit();
 
-        let retired_frame = self.frame.replace(frame);
+        if matches!(action, FrameAction::Animate) {
+            self.retain_animation_buffers();
+        }
+        if let Some(retired_frame) = self.frame.replace(frame) {
+            self.retire_frame(retired_frame);
+        }
 
         match action {
-            FrameAction::Wait => DrawResult::Drawn {
-                retired_frame,
-                next_frame: false,
-            },
-            FrameAction::Animate => DrawResult::Drawn {
-                retired_frame,
-                next_frame: true,
-            },
-            FrameAction::Exit => DrawResult::Exit { retired_frame },
+            FrameAction::Wait => DrawResult::Drawn { next_frame },
+            FrameAction::Animate => DrawResult::Drawn { next_frame },
+            FrameAction::Exit => DrawResult::Exit,
         }
+    }
+
+    fn set_input_regions_if_changed(
+        &mut self,
+        compositor: &CompositorState,
+        regions: Option<Vec<Bounds>>,
+    ) {
+        if self.input_regions_set && self.input_regions == regions {
+            return;
+        }
+
+        self.input_regions = regions.clone();
+        self.input_regions_set = true;
+
+        let Some(regions) = regions else {
+            self.layer.wl_surface().set_input_region(None);
+            return;
+        };
+
+        let Ok(region) = Region::new(compositor) else {
+            return;
+        };
+        for bounds in regions {
+            if bounds.width == 0 || bounds.height == 0 {
+                continue;
+            }
+            region.add(
+                bounds.x.min(i32::MAX as u32) as i32,
+                bounds.y.min(i32::MAX as u32) as i32,
+                bounds.width.min(i32::MAX as u32) as i32,
+                bounds.height.min(i32::MAX as u32) as i32,
+            );
+        }
+        self.layer
+            .wl_surface()
+            .set_input_region(Some(region.wl_region()));
     }
 
     fn draw_frame<R>(
@@ -767,32 +986,146 @@ impl RenderSurface {
         id: SurfaceId,
         frame_time: Option<u32>,
         dimensions: BufferDimensions,
+        repaint: Option<Bounds>,
     ) -> (Frame, FrameAction, Option<DamageRect>)
     where
         R: Renderer,
     {
-        let mut pool = SlotPool::new(dimensions.bytes, shm).expect("allocate buffer pool");
-        let (buffer, pixels) = pool
-            .create_buffer(
-                dimensions.width as i32,
-                dimensions.height as i32,
-                dimensions.stride as i32,
-                wl_shm::Format::Argb8888,
-            )
-            .expect("allocate buffer");
-        let (action, damage) = draw_surface_to_pixels(renderer, id, pixels, dimensions, frame_time);
+        self.collect_released_frames();
+        if let Some(repaint) = repaint {
+            if let Some(frame) = self.take_released_current_frame(dimensions) {
+                if let Some(frame) =
+                    draw_reusable_frame(renderer, id, frame_time, dimensions, frame, Some(repaint))
+                {
+                    return frame;
+                }
+            }
+        }
+        if self.retain_spare_frames
+            && let Some(frame) = self.take_released_current_frame(dimensions)
+        {
+            if let Some(frame) =
+                draw_reusable_frame(renderer, id, frame_time, dimensions, frame, None)
+            {
+                return frame;
+            }
+        }
+
+        if let Some(frame) = self.take_spare_frame(dimensions) {
+            let aged_repaint = self.buffer_age_repaint(frame.sequence, repaint);
+            if let Some(frame) =
+                draw_reusable_frame(renderer, id, frame_time, dimensions, frame, aged_repaint)
+            {
+                return frame;
+            }
+        }
+
+        if dimensions.bytes > MAX_REUSABLE_BUFFER_BYTES && !self.retain_spare_frames {
+            self.clear_reusable_buffers();
+            return self.draw_transient_frame(shm, renderer, id, frame_time, dimensions, None);
+        }
+
+        let pool = self.buffer_pool(shm, dimensions.bytes);
+        let (buffer, action, damage) = {
+            let mut pool_ref = pool.borrow_mut();
+            let (new_buffer, _) = pool_ref
+                .create_buffer(
+                    dimensions.width as i32,
+                    dimensions.height as i32,
+                    dimensions.stride as i32,
+                    wl_shm::Format::Argb8888,
+                )
+                .expect("allocate buffer");
+            let buffer = FrameBuffer::new(new_buffer, dimensions);
+            let pixels = buffer
+                .buffer
+                .canvas(&mut pool_ref)
+                .expect("buffer should be reusable");
+            let (action, damage) =
+                draw_surface_to_pixels(renderer, id, pixels, dimensions, frame_time, None);
+            (buffer, action, damage)
+        };
 
         (
             Frame {
                 buffer,
-                _pool: pool,
+                pool,
+                sequence: 0,
             },
             action,
             damage,
         )
     }
 
-    fn request_frame<R: Renderer>(&mut self, qh: &QueueHandle<State<R>>) {
+    fn draw_transient_frame<R>(
+        &mut self,
+        shm: &Shm,
+        renderer: &mut R,
+        id: SurfaceId,
+        frame_time: Option<u32>,
+        dimensions: BufferDimensions,
+        repaint: Option<Bounds>,
+    ) -> (Frame, FrameAction, Option<DamageRect>)
+    where
+        R: Renderer,
+    {
+        let pool = Rc::new(RefCell::new(
+            SlotPool::new(dimensions.bytes, shm).expect("allocate buffer pool"),
+        ));
+        let (buffer, action, damage) = {
+            let mut pool_ref = pool.borrow_mut();
+            let (buffer, pixels) = pool_ref
+                .create_buffer(
+                    dimensions.width as i32,
+                    dimensions.height as i32,
+                    dimensions.stride as i32,
+                    wl_shm::Format::Argb8888,
+                )
+                .expect("allocate buffer");
+            let (action, damage) =
+                draw_surface_to_pixels(renderer, id, pixels, dimensions, frame_time, repaint);
+            (FrameBuffer::new(buffer, dimensions), action, damage)
+        };
+
+        (
+            Frame {
+                buffer,
+                pool,
+                sequence: 0,
+            },
+            action,
+            damage,
+        )
+    }
+
+    fn buffer_pool(&mut self, shm: &Shm, bytes: usize) -> Rc<RefCell<SlotPool>> {
+        self.pool
+            .get_or_insert_with(|| {
+                Rc::new(RefCell::new(
+                    SlotPool::new(bytes, shm).expect("allocate buffer pool"),
+                ))
+            })
+            .clone()
+    }
+
+    fn request_frame<R: Renderer>(&mut self, qh: &QueueHandle<State<R>>, repaint: Option<Bounds>) {
+        self.pending_repaint = union_optional_bounds(self.pending_repaint, repaint);
+        self.retain_animation_buffers();
+        if self.frame_pending {
+            return;
+        }
+
+        self.request_frame_for_commit(qh, None);
+        self.layer.commit();
+    }
+
+    fn request_frame_for_commit<R: Renderer>(
+        &mut self,
+        qh: &QueueHandle<State<R>>,
+        repaint: Option<Bounds>,
+    ) {
+        self.pending_repaint = union_optional_bounds(self.pending_repaint, repaint);
+        self.retain_animation_buffers();
         if self.frame_pending {
             return;
         }
@@ -800,11 +1133,132 @@ impl RenderSurface {
         let surface = self.layer.wl_surface();
         surface.frame(qh, surface.clone());
         self.frame_pending = true;
-        self.layer.commit();
     }
 
-    fn take_frame(&mut self) -> Option<Frame> {
-        self.frame.take()
+    fn retain_animation_buffers(&mut self) {
+        self.retain_spare_frames = true;
+        self.released_idle_memory = false;
+    }
+
+    pub(in crate::wayland) fn take_pending_repaint(&mut self) -> Option<Bounds> {
+        self.pending_repaint.take()
+    }
+
+    fn take_active_frames(&mut self) -> Vec<Frame> {
+        let mut frames = Vec::new();
+        if let Some(frame) = self.frame.take() {
+            frames.push(frame);
+        }
+        frames.append(&mut self.retired_frames);
+        frames
+    }
+
+    fn retire_frame(&mut self, frame: Frame) {
+        if frame.released() {
+            self.keep_spare_frame(frame);
+        } else {
+            self.retired_frames.push(frame);
+        }
+    }
+
+    fn collect_released_frames(&mut self) {
+        let mut index = 0;
+        while index < self.retired_frames.len() {
+            if self.retired_frames[index].released() {
+                let frame = self.retired_frames.swap_remove(index);
+                self.keep_spare_frame(frame);
+            } else {
+                index += 1;
+            }
+        }
+    }
+
+    fn keep_spare_frame(&mut self, frame: Frame) {
+        if !self.retain_spare_frames {
+            self.released_idle_memory = true;
+            return;
+        }
+        if self.spare_frames.len() < MAX_SPARE_FRAMES {
+            self.spare_frames.push(frame);
+        }
+    }
+
+    fn take_spare_frame(&mut self, dimensions: BufferDimensions) -> Option<Frame> {
+        if dimensions.bytes > MAX_REUSABLE_BUFFER_BYTES && !self.retain_spare_frames {
+            return None;
+        }
+        let index = self
+            .spare_frames
+            .iter()
+            .position(|frame| frame.matches(dimensions))?;
+        Some(self.spare_frames.swap_remove(index))
+    }
+
+    fn take_released_current_frame(&mut self, dimensions: BufferDimensions) -> Option<Frame> {
+        let frame = self.frame.take()?;
+        if frame.released() && frame.matches(dimensions) && frame.canvas_available() {
+            return Some(frame);
+        }
+        self.frame = Some(frame);
+        None
+    }
+
+    fn buffer_age_repaint(&self, sequence: u64, requested: Option<Bounds>) -> Option<Bounds> {
+        if self
+            .damage_history
+            .first()
+            .is_some_and(|(oldest_sequence, _)| sequence < *oldest_sequence)
+        {
+            return None;
+        }
+
+        self.damage_history
+            .iter()
+            .filter(|(damage_sequence, _)| *damage_sequence > sequence)
+            .fold(requested, |repaint, (_, damage)| {
+                union_optional_bounds(repaint, Some(*damage))
+            })
+    }
+
+    fn record_frame_damage(
+        &mut self,
+        mut frame: Frame,
+        dimensions: BufferDimensions,
+        damage: Option<DamageRect>,
+    ) -> Frame {
+        self.frame_sequence = self.frame_sequence.saturating_add(1);
+        frame.sequence = self.frame_sequence;
+
+        if let Some(damage) = damage {
+            self.damage_history
+                .push((self.frame_sequence, dimensions.logical_damage(damage)));
+            if self.damage_history.len() > MAX_DAMAGE_HISTORY {
+                self.damage_history
+                    .drain(0..self.damage_history.len() - MAX_DAMAGE_HISTORY);
+            }
+        }
+
+        frame
+    }
+
+    fn clear_reusable_buffers(&mut self) {
+        self.spare_frames.clear();
+        self.damage_history.clear();
+        self.pool = None;
+    }
+
+    fn release_idle_buffers(&mut self) {
+        self.retain_spare_frames = false;
+        if !self.spare_frames.is_empty() || self.pool.is_some() {
+            self.released_idle_memory = true;
+        }
+        self.clear_reusable_buffers();
+    }
+
+    fn released_idle_memory(&mut self) -> bool {
+        let released = self.released_idle_memory;
+        self.released_idle_memory = false;
+        released
     }
 
     fn state(&self, id: SurfaceId) -> RenderSurfaceState {
@@ -830,20 +1284,27 @@ pub(in crate::wayland) struct BufferDimensions {
     pub(in crate::wayland) logical_height: u32,
     pub(in crate::wayland) width: u32,
     pub(in crate::wayland) height: u32,
-    pub(in crate::wayland) scale: u32,
+    pub(in crate::wayland) buffer_scale: u32,
+    pub(in crate::wayland) scale_factor: f32,
     pub(in crate::wayland) stride: u32,
     pub(in crate::wayland) bytes: usize,
 }
 
 impl BufferDimensions {
-    pub(in crate::wayland) fn new(logical_width: u32, logical_height: u32, scale: u32) -> Self {
-        let scale = scale.max(1);
-        let width = logical_width
-            .checked_mul(scale)
-            .expect("scaled buffer width overflow");
-        let height = logical_height
-            .checked_mul(scale)
-            .expect("scaled buffer height overflow");
+    pub(in crate::wayland) fn new(
+        logical_width: u32,
+        logical_height: u32,
+        buffer_scale: u32,
+        scale_factor: f32,
+    ) -> Self {
+        let buffer_scale = buffer_scale.max(1);
+        let scale_factor = if scale_factor.is_finite() {
+            scale_factor.max(1.0)
+        } else {
+            buffer_scale as f32
+        };
+        let width = scaled_buffer_extent(logical_width, scale_factor);
+        let height = scaled_buffer_extent(logical_height, scale_factor);
         let stride = width.checked_mul(4).expect("buffer stride overflow");
         let bytes = (stride as usize)
             .checked_mul(height as usize)
@@ -853,11 +1314,52 @@ impl BufferDimensions {
             logical_height,
             width,
             height,
-            scale,
+            buffer_scale,
+            scale_factor,
             stride,
             bytes,
         }
     }
+
+    pub(in crate::wayland) fn context(
+        self,
+        frame_time: Option<u32>,
+        repaint: Option<Bounds>,
+    ) -> RenderContext {
+        RenderContext {
+            width: self.logical_width,
+            height: self.logical_height,
+            scale: self.buffer_scale,
+            scale_factor: self.scale_factor,
+            buffer_width: self.width,
+            buffer_height: self.height,
+            frame_time,
+            repaint,
+        }
+    }
+
+    pub(in crate::wayland) fn logical_damage(self, damage: DamageRect) -> Bounds {
+        let scale = self.scale_factor.max(1.0);
+        let x = (damage.x as f32 / scale).floor() as u32;
+        let y = (damage.y as f32 / scale).floor() as u32;
+        let right = (damage.right() as f32 / scale).ceil() as u32;
+        let bottom = (damage.bottom() as f32 / scale).ceil() as u32;
+        Bounds::new(
+            x.min(self.logical_width),
+            y.min(self.logical_height),
+            right.min(self.logical_width).saturating_sub(x),
+            bottom.min(self.logical_height).saturating_sub(y),
+        )
+    }
+}
+
+fn scaled_buffer_extent(logical: u32, scale: f32) -> u32 {
+    let scaled = (logical as f32 * scale).round();
+    assert!(
+        scaled.is_finite() && scaled >= 0.0 && scaled <= u32::MAX as f32,
+        "scaled buffer extent overflow"
+    );
+    scaled as u32
 }
 
 fn draw_surface_to_pixels<R>(
@@ -866,6 +1368,7 @@ fn draw_surface_to_pixels<R>(
     pixels: &mut [u8],
     dimensions: BufferDimensions,
     frame_time: Option<u32>,
+    repaint: Option<Bounds>,
 ) -> (FrameAction, Option<DamageRect>)
 where
     R: Renderer,
@@ -875,46 +1378,111 @@ where
         width: dimensions.width,
         height: dimensions.height,
         stride: dimensions.stride,
-        scale: dimensions.scale,
+        scale: dimensions.buffer_scale,
         damage: None,
     };
-    let action = renderer.draw_surface(
-        id,
-        &mut canvas,
-        RenderContext {
-            width: dimensions.logical_width,
-            height: dimensions.logical_height,
-            scale: dimensions.scale,
-            buffer_width: dimensions.width,
-            buffer_height: dimensions.height,
-            frame_time,
-        },
-    );
+    let action = renderer.draw_surface(id, &mut canvas, dimensions.context(frame_time, repaint));
     let damage = canvas.damage();
     (action, damage)
 }
 
+fn draw_reusable_frame<R>(
+    renderer: &mut R,
+    id: SurfaceId,
+    frame_time: Option<u32>,
+    dimensions: BufferDimensions,
+    frame: Frame,
+    repaint: Option<Bounds>,
+) -> Option<(Frame, FrameAction, Option<DamageRect>)>
+where
+    R: Renderer,
+{
+    let pool = frame.pool.clone();
+    let buffer = frame.buffer;
+    let sequence = frame.sequence;
+    let (buffer, action, damage) = {
+        let mut pool_ref = pool.borrow_mut();
+        let pixels = buffer.buffer.canvas(&mut pool_ref)?;
+        let (action, damage) =
+            draw_surface_to_pixels(renderer, id, pixels, dimensions, frame_time, repaint);
+        (buffer, action, damage)
+    };
+
+    Some((
+        Frame {
+            buffer,
+            pool,
+            sequence,
+        },
+        action,
+        damage,
+    ))
+}
+
+fn union_optional_bounds(current: Option<Bounds>, next: Option<Bounds>) -> Option<Bounds> {
+    match (current, next) {
+        (Some(current), Some(next)) => Some(current.union(next)),
+        (Some(current), None) => Some(current),
+        (None, Some(next)) => Some(next),
+        (None, None) => None,
+    }
+}
+
 enum DrawResult {
-    Drawn {
-        retired_frame: Option<Frame>,
-        next_frame: bool,
-    },
-    Exit {
-        retired_frame: Option<Frame>,
-    },
+    Drawn { next_frame: bool },
+    Exit,
 }
 
 struct Frame {
-    buffer: Buffer,
-    _pool: SlotPool,
+    buffer: FrameBuffer,
+    pool: Rc<RefCell<SlotPool>>,
+    sequence: u64,
 }
 
 impl Frame {
     fn attach_to(&self, surface: &wl_surface::WlSurface) {
-        self.buffer.attach_to(surface).expect("attach buffer");
+        self.buffer
+            .buffer
+            .attach_to(surface)
+            .expect("attach buffer");
     }
 
     fn released(&self) -> bool {
-        !self.buffer.slot().has_active_buffers()
+        !self.buffer.buffer.slot().has_active_buffers()
+    }
+
+    fn matches(&self, dimensions: BufferDimensions) -> bool {
+        self.buffer.matches(dimensions)
+    }
+
+    fn canvas_available(&self) -> bool {
+        self.buffer
+            .buffer
+            .canvas(&mut self.pool.borrow_mut())
+            .is_some()
+    }
+}
+
+struct FrameBuffer {
+    buffer: Buffer,
+    width: i32,
+    height: i32,
+    stride: i32,
+}
+
+impl FrameBuffer {
+    fn new(buffer: Buffer, dimensions: BufferDimensions) -> Self {
+        Self {
+            buffer,
+            width: dimensions.width as i32,
+            height: dimensions.height as i32,
+            stride: dimensions.stride as i32,
+        }
+    }
+
+    fn matches(&self, dimensions: BufferDimensions) -> bool {
+        self.width == dimensions.width as i32
+            && self.height == dimensions.height as i32
+            && self.stride == dimensions.stride as i32
     }
 }

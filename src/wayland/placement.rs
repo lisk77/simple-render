@@ -47,13 +47,17 @@ impl Anchor {
         match self {
             Self::Center => SctkAnchor::empty(),
             Self::Top => SctkAnchor::TOP,
+            Self::TopFill => SctkAnchor::TOP | SctkAnchor::LEFT | SctkAnchor::RIGHT,
             Self::TopLeft => SctkAnchor::TOP | SctkAnchor::LEFT,
             Self::TopRight => SctkAnchor::TOP | SctkAnchor::RIGHT,
             Self::Bottom => SctkAnchor::BOTTOM,
+            Self::BottomFill => SctkAnchor::BOTTOM | SctkAnchor::LEFT | SctkAnchor::RIGHT,
             Self::BottomLeft => SctkAnchor::BOTTOM | SctkAnchor::LEFT,
             Self::BottomRight => SctkAnchor::BOTTOM | SctkAnchor::RIGHT,
             Self::Left => SctkAnchor::LEFT,
+            Self::LeftFill => SctkAnchor::LEFT | SctkAnchor::TOP | SctkAnchor::BOTTOM,
             Self::Right => SctkAnchor::RIGHT,
+            Self::RightFill => SctkAnchor::RIGHT | SctkAnchor::TOP | SctkAnchor::BOTTOM,
             Self::Fill => {
                 SctkAnchor::TOP | SctkAnchor::RIGHT | SctkAnchor::BOTTOM | SctkAnchor::LEFT
             }

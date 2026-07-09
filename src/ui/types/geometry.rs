@@ -192,6 +192,10 @@ impl Clip {
         self.bounds
     }
 
+    pub(in crate::ui) fn is_rect(self) -> bool {
+        self.rounded_len == 0
+    }
+
     pub(in crate::ui) fn intersect_bounds(mut self, bounds: Bounds) -> Option<Self> {
         self.bounds = self.bounds.intersect(bounds)?;
         Some(self)
