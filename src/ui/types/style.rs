@@ -103,13 +103,6 @@ impl Border {
     }
 }
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub enum AntiAlias {
-    #[default]
-    On,
-    Off,
-}
-
 #[derive(Clone, Debug, PartialEq)]
 pub struct Style {
     pub background: Option<Paint>,
@@ -119,7 +112,7 @@ pub struct Style {
     pub gradient: GradientDirection,
     pub opacity: f32,
     pub transform: PaintTransform,
-    pub anti_alias: AntiAlias,
+    pub anti_alias: bool,
 }
 
 impl Default for Style {
@@ -132,7 +125,7 @@ impl Default for Style {
             gradient: GradientDirection::default(),
             opacity: 1.0,
             transform: PaintTransform::IDENTITY,
-            anti_alias: AntiAlias::On,
+            anti_alias: true,
         }
     }
 }
@@ -177,7 +170,7 @@ impl Style {
         self
     }
 
-    pub fn anti_alias(mut self, anti_alias: AntiAlias) -> Self {
+    pub fn anti_alias(mut self, anti_alias: bool) -> Self {
         self.anti_alias = anti_alias;
         self
     }

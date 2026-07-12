@@ -9,7 +9,7 @@ pub(super) fn rounded_rect_bounds_coverage_with_antialias(
     x: u32,
     y: u32,
     radii: CornerRadius,
-    anti_alias: AntiAlias,
+    anti_alias: bool,
 ) -> u8 {
     if x < bounds.x || y < bounds.y || x >= bounds.right() || y >= bounds.bottom() {
         return 0;
@@ -185,12 +185,13 @@ pub(super) fn rounded_rect_coverage_with_antialias(
     width: u32,
     height: u32,
     radii: CornerRadius,
-    anti_alias: AntiAlias,
+    anti_alias: bool,
 ) -> u8 {
-    match anti_alias {
-        AntiAlias::On => rounded_rect_coverage(x, y, width, height, radii),
-        AntiAlias::Off => rounded_rect_contains(x, y, width, height, radii)
-            .then_some(255)
-            .unwrap_or(0),
+    if anti_alias {
+        rounded_rect_coverage(x, y, width, height, radii)
+    } else if rounded_rect_contains(x, y, width, height, radii) {
+        255
+    } else {
+        0
     }
 }

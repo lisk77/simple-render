@@ -7,8 +7,8 @@ mod widgets;
 
 pub mod prelude {
     pub use crate::{
-        Align, Anchor, AntiAlias, Border, Button, ButtonStyle, Canvas, Checkbox, CheckboxStyle,
-        Color, Content, Direction, FontCtx, FontCtxOptions, FrameAction, GradientDirection, Image,
+        Align, Anchor, Border, Button, ButtonStyle, Canvas, Checkbox, CheckboxStyle, Color,
+        Content, Direction, FontCtx, FontCtxOptions, FrameAction, GradientDirection, Image,
         ImageFilter, ImageFit, InputAction, InputState, KeyboardEvent, KeyboardEventKind,
         KeyboardInteractivity, Layer, LayerOptions, LazyFontCtx, Length, OutputTarget, Overflow,
         Paint, PaintTransform, Position, ProgressBar, ProgressBarStyle, Rect, RenderContext,
@@ -28,12 +28,11 @@ pub use input::{
 };
 pub use memory::{trim_free_heap_pages, tune_allocator_for_low_memory};
 pub use ui::{
-    Align, AntiAlias, Border, BorderWidth, Bounds, Clip, Color, ColorParseError, Content,
-    CornerRadius, Direction, DrawCommand, FontCtx, FontCtxOptions, FontSource, GradientDirection,
-    Hit, Image, ImageFilter, ImageFit, ImagePixels, Inset, LazyFontCtx, Length, MeasuredSize,
-    Overflow, Paint, PaintTransform, Position, Rect, RectLayout, RectStyle, RgbaImageSource,
-    RichText, RoundedClip, Spacing, Style, Surface, Text, TextOverflow, TextRun, TextStyle,
-    TextWrap, Ui,
+    Align, Border, BorderWidth, Bounds, Clip, Color, ColorParseError, Content, CornerRadius,
+    Direction, DrawCommand, FontCtx, FontCtxOptions, FontSource, GradientDirection, Hit, Image,
+    ImageFilter, ImageFit, ImagePixels, Inset, LazyFontCtx, Length, MeasuredSize, Overflow, Paint,
+    PaintTransform, Position, Rect, RectLayout, RectStyle, RgbaImageSource, RichText, RoundedClip,
+    Spacing, Style, Surface, Text, TextOverflow, TextRun, TextStyle, TextWrap, Ui,
 };
 pub use wayland::{
     Anchor, Canvas, DEFAULT_SURFACE_ID, DamageRect, FrameAction, InputAction,

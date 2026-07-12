@@ -451,7 +451,7 @@ impl Rect {
         self
     }
 
-    pub fn anti_alias(mut self, anti_alias: AntiAlias) -> Self {
+    pub fn anti_alias(mut self, anti_alias: bool) -> Self {
         self.style.anti_alias = anti_alias;
         self
     }

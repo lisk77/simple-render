@@ -9,7 +9,7 @@ pub enum DrawCommand {
         paint: Paint,
         gradient: GradientDirection,
         radii: CornerRadius,
-        anti_alias: AntiAlias,
+        anti_alias: bool,
     },
     Border {
         rect: Bounds,
@@ -19,7 +19,7 @@ pub enum DrawCommand {
         gradient: GradientDirection,
         widths: BorderWidth,
         radii: CornerRadius,
-        anti_alias: AntiAlias,
+        anti_alias: bool,
     },
     Text {
         rect: Bounds,
@@ -51,7 +51,7 @@ pub(in crate::ui) enum PaintCommand<'a> {
         paint: &'a Paint,
         gradient: GradientDirection,
         radii: CornerRadius,
-        anti_alias: AntiAlias,
+        anti_alias: bool,
     },
     Border {
         rect: Bounds,
@@ -61,7 +61,7 @@ pub(in crate::ui) enum PaintCommand<'a> {
         gradient: GradientDirection,
         widths: BorderWidth,
         radii: CornerRadius,
-        anti_alias: AntiAlias,
+        anti_alias: bool,
     },
     Text {
         rect: Bounds,
