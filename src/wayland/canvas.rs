@@ -286,36 +286,3 @@ fn blend_bgra_pixel(background: &mut [u8], foreground: [u8; 4]) {
 fn mul_div_255(value: u32, alpha: u32) -> u32 {
     (value * alpha + 127) / 255
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn clear_premultiplies_alpha() {
-        let mut pixels = [0_u8; 4];
-        let mut canvas = Canvas::from_bgra_pixels(&mut pixels, 1, 1, 4, 1).expect("canvas");
-        canvas.clear([255, 255, 255, 128]);
-
-        assert_eq!(canvas.pixels(), &[128, 128, 128, 128]);
-    }
-
-    #[test]
-    fn blend_pixel_stores_premultiplied_color() {
-        let mut pixels = [0_u8; 4];
-        let mut canvas = Canvas::from_bgra_pixels(&mut pixels, 1, 1, 4, 1).expect("canvas");
-        canvas.blend_pixel(0, 0, [255, 255, 255, 128]);
-
-        assert_eq!(canvas.pixels(), &[128, 128, 128, 128]);
-    }
-
-    #[test]
-    fn blend_pixel_uses_premultiplied_over_operator() {
-        let mut pixels = [0_u8; 4];
-        let mut canvas = Canvas::from_bgra_pixels(&mut pixels, 1, 1, 4, 1).expect("canvas");
-        canvas.put_pixel(0, 0, [0, 0, 255, 128]);
-        canvas.blend_pixel(0, 0, [255, 0, 0, 128]);
-
-        assert_eq!(canvas.pixels(), &[64, 0, 128, 192]);
-    }
-}

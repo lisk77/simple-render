@@ -9,7 +9,7 @@ pub mod prelude {
     pub use crate::{
         Align, Anchor, Border, Button, ButtonStyle, Canvas, Checkbox, CheckboxStyle, Color,
         Content, Direction, FontCtx, FontCtxOptions, FrameAction, GradientDirection, Image,
-        ImageFilter, ImageFit, InputAction, InputState, KeyboardEvent, KeyboardEventKind,
+        ImageFilter, ImageFit, InputAction, InputState, Key, KeyboardEvent, KeyboardEventKind,
         KeyboardInteractivity, Layer, LayerOptions, LazyFontCtx, Length, OutputTarget, Overflow,
         Paint, PaintTransform, Position, ProgressBar, ProgressBarStyle, Rect, RenderContext,
         Renderer, Result, RichText, Slider, SliderStyle, Style, Surface, Text, TextOverflow,
@@ -23,7 +23,7 @@ pub use animation::{
     lerp_i32, lerp_inset, lerp_spacing, lerp_u32,
 };
 pub use input::{
-    InputState, KeyState, KeyboardEvent, KeyboardEventKind, KeyboardModifiers, KeyboardState,
+    InputState, Key, KeyState, KeyboardEvent, KeyboardEventKind, KeyboardModifiers, KeyboardState,
     PointerState, UiContext, WidgetId, WidgetInteraction,
 };
 pub use memory::{trim_free_heap_pages, tune_allocator_for_low_memory};

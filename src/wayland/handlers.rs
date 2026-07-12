@@ -402,6 +402,7 @@ impl<R: Renderer> State<R> {
                 state,
                 raw_code: event.raw_code,
                 keysym: event.keysym.raw(),
+                key: event.keysym.raw().into(),
                 utf8: event.utf8,
             },
         };
