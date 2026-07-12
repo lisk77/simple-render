@@ -31,6 +31,84 @@ impl Default for LayerOptions {
 }
 
 impl LayerOptions {
+    pub fn new() -> Self {
+        Self::default()
+    }
+    pub fn namespace(mut self, value: impl Into<String>) -> Self {
+        self.namespace = value.into();
+        self
+    }
+    pub fn width(mut self, value: u32) -> Self {
+        self.width = value;
+        self
+    }
+    pub fn height(mut self, value: u32) -> Self {
+        self.height = value;
+        self
+    }
+    pub fn size(mut self, width: u32, height: u32) -> Self {
+        self.width = width;
+        self.height = height;
+        self
+    }
+    pub fn output(mut self, value: OutputTarget) -> Self {
+        self.output = Some(value);
+        self
+    }
+    pub fn clear_output(mut self) -> Self {
+        self.output = None;
+        self
+    }
+    pub fn layer(mut self, value: Layer) -> Self {
+        self.layer = value;
+        self
+    }
+    pub fn anchor(mut self, value: Anchor) -> Self {
+        self.anchor = value;
+        self
+    }
+    pub fn margin_all(mut self, value: i32) -> Self {
+        self.margins = Margins {
+            top: value,
+            right: value,
+            bottom: value,
+            left: value,
+        };
+        self
+    }
+    pub fn margin_axis(mut self, horizontal: i32, vertical: i32) -> Self {
+        self.margins = Margins {
+            top: vertical,
+            right: horizontal,
+            bottom: vertical,
+            left: horizontal,
+        };
+        self
+    }
+    pub fn margin_top(mut self, value: i32) -> Self {
+        self.margins.top = value;
+        self
+    }
+    pub fn margin_right(mut self, value: i32) -> Self {
+        self.margins.right = value;
+        self
+    }
+    pub fn margin_bottom(mut self, value: i32) -> Self {
+        self.margins.bottom = value;
+        self
+    }
+    pub fn margin_left(mut self, value: i32) -> Self {
+        self.margins.left = value;
+        self
+    }
+    pub fn exclusive_zone(mut self, value: i32) -> Self {
+        self.exclusive_zone = value;
+        self
+    }
+    pub fn keyboard_interactivity(mut self, value: KeyboardInteractivity) -> Self {
+        self.keyboard_interactivity = value;
+        self
+    }
     pub fn show<R>(self, renderer: R) -> Result<()>
     where
         R: Renderer + 'static,

@@ -37,6 +37,56 @@ impl Default for ButtonStyle {
     }
 }
 
+impl ButtonStyle {
+    pub fn new() -> Self {
+        Self::default()
+    }
+    pub fn normal(mut self, value: crate::Style) -> Self {
+        self.normal = value;
+        self
+    }
+    pub fn hovered(mut self, value: crate::Style) -> Self {
+        self.hovered = value;
+        self
+    }
+    pub fn pressed(mut self, value: crate::Style) -> Self {
+        self.pressed = value;
+        self
+    }
+    pub fn disabled(mut self, value: crate::Style) -> Self {
+        self.disabled = value;
+        self
+    }
+    pub fn text(mut self, value: TextStyle) -> Self {
+        self.text = value;
+        self
+    }
+    pub fn padding_all(mut self, value: u32) -> Self {
+        self.padding = Spacing::all(value);
+        self
+    }
+    pub fn padding_axis(mut self, horizontal: u32, vertical: u32) -> Self {
+        self.padding = Spacing::axis(horizontal, vertical);
+        self
+    }
+    pub fn padding_top(mut self, value: u32) -> Self {
+        self.padding.top = value;
+        self
+    }
+    pub fn padding_right(mut self, value: u32) -> Self {
+        self.padding.right = value;
+        self
+    }
+    pub fn padding_bottom(mut self, value: u32) -> Self {
+        self.padding.bottom = value;
+        self
+    }
+    pub fn padding_left(mut self, value: u32) -> Self {
+        self.padding.left = value;
+        self
+    }
+}
+
 pub struct Button<A = ()> {
     id: Option<WidgetId>,
     label: Arc<str>,
@@ -63,6 +113,11 @@ impl Button<()> {
 }
 
 impl<A> Button<A> {
+    pub fn label(mut self, label: impl Into<Arc<str>>) -> Self {
+        self.label = label.into();
+        self
+    }
+
     pub fn id(mut self, id: impl Into<WidgetId>) -> Self {
         self.id = Some(id.into());
         self
@@ -120,7 +175,7 @@ impl<A> Button<A> {
             &self.style.disabled,
         );
 
-        Rect::new(RectLayout {
+        Rect::layout(RectLayout {
             id: Some(id),
             width: self.width,
             height: self.height,

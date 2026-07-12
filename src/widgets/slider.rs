@@ -26,6 +26,24 @@ impl Default for SliderStyle {
     }
 }
 
+impl SliderStyle {
+    pub fn new() -> Self {
+        Self::default()
+    }
+    pub fn track(mut self, value: crate::Style) -> Self {
+        self.track = value;
+        self
+    }
+    pub fn fill(mut self, value: crate::Style) -> Self {
+        self.fill = value;
+        self
+    }
+    pub fn knob(mut self, value: crate::Style) -> Self {
+        self.knob = value;
+        self
+    }
+}
+
 pub struct Slider<A = ()> {
     id: Option<WidgetId>,
     range: RangeInclusive<f32>,
@@ -53,6 +71,11 @@ impl Slider<()> {
 }
 
 impl<A> Slider<A> {
+    pub fn range(mut self, range: RangeInclusive<f32>) -> Self {
+        self.range = range;
+        self
+    }
+
     pub fn id(mut self, id: impl Into<WidgetId>) -> Self {
         self.id = Some(id.into());
         self
@@ -78,6 +101,11 @@ impl<A> Slider<A> {
 
     pub fn width(mut self, width: u32) -> Self {
         self.width = width;
+        self
+    }
+
+    pub fn height(mut self, height: Length) -> Self {
+        self.height = height;
         self
     }
 
@@ -141,14 +169,14 @@ impl<A> Slider<A> {
         let knob_left = lerp_u32(0, track_width, value_fraction);
 
         (
-            Rect::new(RectLayout {
+            Rect::layout(RectLayout {
                 id: Some(id),
                 width: Length::Px(self.width),
                 height: self.height,
                 padding: Spacing::ZERO,
                 ..RectLayout::default()
             })
-            .child(Rect::new(RectLayout {
+            .child(Rect::layout(RectLayout {
                 width: Length::Fill,
                 height: Length::Px(8),
                 position: crate::Position::Absolute,
@@ -161,7 +189,7 @@ impl<A> Slider<A> {
                 style: self.style.track,
                 ..RectLayout::default()
             }))
-            .child(Rect::new(RectLayout {
+            .child(Rect::layout(RectLayout {
                 width: Length::Px(fill_width),
                 height: Length::Px(8),
                 position: crate::Position::Absolute,
@@ -173,7 +201,7 @@ impl<A> Slider<A> {
                 style: self.style.fill,
                 ..RectLayout::default()
             }))
-            .child(Rect::new(RectLayout {
+            .child(Rect::layout(RectLayout {
                 width: Length::Px(KNOB_SIZE),
                 height: Length::Px(KNOB_SIZE),
                 position: crate::Position::Absolute,

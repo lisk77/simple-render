@@ -94,6 +94,10 @@ pub struct CornerRadius {
 impl CornerRadius {
     pub const ZERO: Self = Self::all(0);
 
+    pub const fn new() -> Self {
+        Self::ZERO
+    }
+
     pub const fn all(radius: u32) -> Self {
         Self {
             top_left: radius,
@@ -101,6 +105,26 @@ impl CornerRadius {
             bottom_right: radius,
             bottom_left: radius,
         }
+    }
+
+    pub const fn top_left(mut self, radius: u32) -> Self {
+        self.top_left = radius;
+        self
+    }
+
+    pub const fn top_right(mut self, radius: u32) -> Self {
+        self.top_right = radius;
+        self
+    }
+
+    pub const fn bottom_right(mut self, radius: u32) -> Self {
+        self.bottom_right = radius;
+        self
+    }
+
+    pub const fn bottom_left(mut self, radius: u32) -> Self {
+        self.bottom_left = radius;
+        self
     }
 
     pub(in crate::ui) fn is_zero(self) -> bool {

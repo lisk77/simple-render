@@ -56,6 +56,53 @@ impl Default for TextStyle {
     }
 }
 
+impl TextStyle {
+    pub fn new() -> Self {
+        Self::default()
+    }
+    pub fn color(mut self, value: impl Into<Paint>) -> Self {
+        self.color = value.into();
+        self
+    }
+    pub fn gradient(mut self, value: GradientDirection) -> Self {
+        self.gradient = value;
+        self
+    }
+    pub fn size(mut self, value: u32) -> Self {
+        self.size = value;
+        self
+    }
+    pub fn family(mut self, value: impl Into<String>) -> Self {
+        self.family = Some(value.into());
+        self
+    }
+
+    pub fn clear_family(mut self) -> Self {
+        self.family = None;
+        self
+    }
+    pub fn bold(mut self) -> Self {
+        self.bold = true;
+        self
+    }
+    pub fn italic(mut self) -> Self {
+        self.italic = true;
+        self
+    }
+    pub fn underline(mut self) -> Self {
+        self.underline = true;
+        self
+    }
+    pub fn strikethrough(mut self) -> Self {
+        self.strikethrough = true;
+        self
+    }
+    pub fn overline(mut self) -> Self {
+        self.overline = true;
+        self
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct Text {
     pub content: Arc<str>,
@@ -74,6 +121,120 @@ impl Text {
             content: content.into(),
             ..Self::default()
         }
+    }
+
+    pub fn content(mut self, content: impl Into<Arc<str>>) -> Self {
+        self.content = content.into();
+        self
+    }
+
+    pub fn style(mut self, style: TextStyle) -> Self {
+        self.style = style;
+        self
+    }
+
+    pub fn color(mut self, color: impl Into<Paint>) -> Self {
+        self.style.color = color.into();
+        self
+    }
+
+    pub fn gradient(mut self, gradient: GradientDirection) -> Self {
+        self.style.gradient = gradient;
+        self
+    }
+
+    pub fn size(mut self, size: u32) -> Self {
+        self.style.size = size;
+        self
+    }
+
+    pub fn family(mut self, family: impl Into<String>) -> Self {
+        self.style.family = Some(family.into());
+        self
+    }
+
+    pub fn bold(mut self) -> Self {
+        self.style.bold = true;
+        self
+    }
+
+    pub fn italic(mut self) -> Self {
+        self.style.italic = true;
+        self
+    }
+
+    pub fn underline(mut self) -> Self {
+        self.style.underline = true;
+        self
+    }
+
+    pub fn strikethrough(mut self) -> Self {
+        self.style.strikethrough = true;
+        self
+    }
+
+    pub fn overline(mut self) -> Self {
+        self.style.overline = true;
+        self
+    }
+
+    pub fn align(mut self, align: Align) -> Self {
+        self.align = align;
+        self
+    }
+
+    pub fn align_center(self) -> Self {
+        self.align(Align::Center)
+    }
+
+    pub fn vertical_align(mut self, align: Align) -> Self {
+        self.vertical_align = align;
+        self
+    }
+
+    pub fn vertical_align_center(self) -> Self {
+        self.vertical_align(Align::Center)
+    }
+
+    pub fn wrap(mut self, wrap: TextWrap) -> Self {
+        self.wrap = wrap;
+        self
+    }
+
+    pub fn wrap_word(self) -> Self {
+        self.wrap(TextWrap::Word)
+    }
+
+    pub fn wrap_glyph(self) -> Self {
+        self.wrap(TextWrap::Glyph)
+    }
+
+    pub fn wrap_none(self) -> Self {
+        self.wrap(TextWrap::None)
+    }
+
+    pub fn overflow(mut self, overflow: TextOverflow) -> Self {
+        self.overflow = overflow;
+        self
+    }
+
+    pub fn ellipsis(self) -> Self {
+        self.overflow(TextOverflow::Ellipsis)
+    }
+
+    pub fn max_lines(mut self, max_lines: u32) -> Self {
+        self.max_lines = Some(max_lines);
+        self
+    }
+
+    pub fn emoji_family(mut self, family: impl Into<String>) -> Self {
+        self.emoji_family = Some(family.into());
+        self
+    }
+
+    pub fn clear_emoji_family(mut self) -> Self {
+        self.emoji_family = None;
+        self
     }
 }
 
@@ -105,6 +266,15 @@ impl TextRun {
             style,
         }
     }
+
+    pub fn content(mut self, content: impl Into<Arc<str>>) -> Self {
+        self.content = content.into();
+        self
+    }
+    pub fn style(mut self, style: TextStyle) -> Self {
+        self.style = style;
+        self
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -124,6 +294,49 @@ impl RichText {
             runs: runs.into(),
             ..Self::default()
         }
+    }
+
+    pub fn runs(mut self, runs: impl Into<Arc<[TextRun]>>) -> Self {
+        self.runs = runs.into();
+        self
+    }
+    pub fn align(mut self, align: Align) -> Self {
+        self.align = align;
+        self
+    }
+    pub fn align_center(self) -> Self {
+        self.align(Align::Center)
+    }
+    pub fn vertical_align(mut self, align: Align) -> Self {
+        self.vertical_align = align;
+        self
+    }
+    pub fn vertical_align_center(self) -> Self {
+        self.vertical_align(Align::Center)
+    }
+    pub fn wrap(mut self, wrap: TextWrap) -> Self {
+        self.wrap = wrap;
+        self
+    }
+    pub fn overflow(mut self, overflow: TextOverflow) -> Self {
+        self.overflow = overflow;
+        self
+    }
+    pub fn ellipsis(self) -> Self {
+        self.overflow(TextOverflow::Ellipsis)
+    }
+    pub fn max_lines(mut self, value: u32) -> Self {
+        self.max_lines = Some(value);
+        self
+    }
+    pub fn emoji_family(mut self, value: impl Into<String>) -> Self {
+        self.emoji_family = Some(value.into());
+        self
+    }
+
+    pub fn clear_emoji_family(mut self) -> Self {
+        self.emoji_family = None;
+        self
     }
 }
 
@@ -258,6 +471,33 @@ impl Image {
     pub fn with_stride(mut self, stride: u32) -> Self {
         self.stride = stride;
         self
+    }
+
+    pub fn stride(self, stride: u32) -> Self {
+        self.with_stride(stride)
+    }
+
+    pub fn fit(mut self, fit: ImageFit) -> Self {
+        self.fit = fit;
+        self
+    }
+    pub fn filter(mut self, filter: ImageFilter) -> Self {
+        self.filter = filter;
+        self
+    }
+    pub fn align(mut self, align: Align) -> Self {
+        self.align = align;
+        self
+    }
+    pub fn align_center(self) -> Self {
+        self.align(Align::Center)
+    }
+    pub fn vertical_align(mut self, align: Align) -> Self {
+        self.vertical_align = align;
+        self
+    }
+    pub fn vertical_align_center(self) -> Self {
+        self.vertical_align(Align::Center)
     }
 
     pub fn from_source(width: u32, height: u32, source: Arc<dyn RgbaImageSource>) -> Self {

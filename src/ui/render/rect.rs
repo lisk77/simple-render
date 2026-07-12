@@ -102,9 +102,28 @@ impl Default for Rect {
     }
 }
 
+pub trait IntoChild {
+    fn into_child(self, parent: &Rect) -> Rect;
+}
+
+impl IntoChild for Rect {
+    fn into_child(self, _: &Rect) -> Rect {
+        self
+    }
+}
+
+impl<F> IntoChild for F
+where
+    F: FnOnce(&Rect) -> Rect,
+{
+    fn into_child(self, parent: &Rect) -> Rect {
+        self(parent)
+    }
+}
+
 impl Rect {
-    pub fn new(layout: RectLayout) -> Self {
-        Self::default().with_layout(layout)
+    pub fn new() -> Self {
+        Self::default()
     }
 
     pub fn empty() -> Self {
@@ -112,7 +131,7 @@ impl Rect {
     }
 
     pub fn layout(layout: RectLayout) -> Self {
-        Self::new(layout)
+        Self::default().with_layout(layout)
     }
 
     pub fn styled(style: RectStyle) -> Self {
@@ -228,14 +247,100 @@ impl Rect {
         self
     }
 
+    pub fn inset_all(mut self, value: u32) -> Self {
+        self.inset = Inset::all(value);
+        self
+    }
+
+    pub fn inset_axis(mut self, horizontal: u32, vertical: u32) -> Self {
+        self.inset = Inset::axis(horizontal, vertical);
+        self
+    }
+
+    pub fn inset_top(mut self, value: u32) -> Self {
+        self.inset.top = Some(value);
+        self
+    }
+
+    pub fn inset_right(mut self, value: u32) -> Self {
+        self.inset.right = Some(value);
+        self
+    }
+
+    pub fn inset_bottom(mut self, value: u32) -> Self {
+        self.inset.bottom = Some(value);
+        self
+    }
+
+    pub fn inset_left(mut self, value: u32) -> Self {
+        self.inset.left = Some(value);
+        self
+    }
+
     pub fn absolute(mut self, inset: Inset) -> Self {
         self.position = Position::Absolute;
         self.inset = inset;
         self
     }
 
+    pub fn absolute_all(mut self, value: u32) -> Self {
+        self.position = Position::Absolute;
+        self.inset = Inset::all(value);
+        self
+    }
+
+    pub fn absolute_axis(mut self, horizontal: u32, vertical: u32) -> Self {
+        self.position = Position::Absolute;
+        self.inset = Inset::axis(horizontal, vertical);
+        self
+    }
+
+    pub fn top(mut self, value: u32) -> Self {
+        self.position = Position::Absolute;
+        self.inset.top = Some(value);
+        self
+    }
+
+    pub fn right(mut self, value: u32) -> Self {
+        self.position = Position::Absolute;
+        self.inset.right = Some(value);
+        self
+    }
+
+    pub fn bottom(mut self, value: u32) -> Self {
+        self.position = Position::Absolute;
+        self.inset.bottom = Some(value);
+        self
+    }
+
+    pub fn left(mut self, value: u32) -> Self {
+        self.position = Position::Absolute;
+        self.inset.left = Some(value);
+        self
+    }
+
     pub fn padding(mut self, padding: Spacing) -> Self {
         self.padding = padding;
+        self
+    }
+
+    pub fn padding_top(mut self, value: u32) -> Self {
+        self.padding.top = value;
+        self
+    }
+
+    pub fn padding_right(mut self, value: u32) -> Self {
+        self.padding.right = value;
+        self
+    }
+
+    pub fn padding_bottom(mut self, value: u32) -> Self {
+        self.padding.bottom = value;
+        self
+    }
+
+    pub fn padding_left(mut self, value: u32) -> Self {
+        self.padding.left = value;
         self
     }
 
@@ -254,6 +359,58 @@ impl Rect {
         self
     }
 
+    pub fn border_color(mut self, color: impl Into<Paint>) -> Self {
+        self.style.border.get_or_insert_with(Border::new).color = color.into();
+        self
+    }
+
+    pub fn border_width(mut self, width: u32) -> Self {
+        self.style.border.get_or_insert_with(Border::new).width = width;
+        self
+    }
+
+    pub fn border_widths(mut self, widths: BorderWidth) -> Self {
+        self.style.border.get_or_insert_with(Border::new).widths = widths;
+        self
+    }
+
+    pub fn border_top_width(mut self, width: u32) -> Self {
+        self.style.border.get_or_insert_with(Border::new).widths.top = width;
+        self
+    }
+
+    pub fn border_right_width(mut self, width: u32) -> Self {
+        self.style
+            .border
+            .get_or_insert_with(Border::new)
+            .widths
+            .right = width;
+        self
+    }
+
+    pub fn border_bottom_width(mut self, width: u32) -> Self {
+        self.style
+            .border
+            .get_or_insert_with(Border::new)
+            .widths
+            .bottom = width;
+        self
+    }
+
+    pub fn border_left_width(mut self, width: u32) -> Self {
+        self.style
+            .border
+            .get_or_insert_with(Border::new)
+            .widths
+            .left = width;
+        self
+    }
+
+    pub fn border_gradient(mut self, gradient: GradientDirection) -> Self {
+        self.style.border.get_or_insert_with(Border::new).gradient = gradient;
+        self
+    }
+
     pub fn corner_radius(mut self, radius: u32) -> Self {
         self.style.corner_radius = radius;
         self
@@ -261,6 +418,26 @@ impl Rect {
 
     pub fn corner_radii(mut self, radii: CornerRadius) -> Self {
         self.style.corner_radii = radii;
+        self
+    }
+
+    pub fn corner_top_left(mut self, radius: u32) -> Self {
+        self.style.corner_radii.top_left = radius;
+        self
+    }
+
+    pub fn corner_top_right(mut self, radius: u32) -> Self {
+        self.style.corner_radii.top_right = radius;
+        self
+    }
+
+    pub fn corner_bottom_right(mut self, radius: u32) -> Self {
+        self.style.corner_radii.bottom_right = radius;
+        self
+    }
+
+    pub fn corner_bottom_left(mut self, radius: u32) -> Self {
+        self.style.corner_radii.bottom_left = radius;
         self
     }
 
@@ -305,6 +482,80 @@ impl Rect {
         self
     }
 
+    pub fn surface(self, surface: Surface) -> Self {
+        self.with_surface(surface)
+    }
+
+    pub fn width_fill(self) -> Self {
+        self.width(Length::Fill)
+    }
+
+    pub fn height_fill(self) -> Self {
+        self.height(Length::Fill)
+    }
+
+    pub fn size_fill(self) -> Self {
+        self.size(Length::Fill, Length::Fill)
+    }
+
+    pub fn width_px(self, width: u32) -> Self {
+        self.width(Length::Px(width))
+    }
+
+    pub fn height_px(self, height: u32) -> Self {
+        self.height(Length::Px(height))
+    }
+
+    pub fn size_px(self, width: u32, height: u32) -> Self {
+        self.size(Length::Px(width), Length::Px(height))
+    }
+
+    pub fn padding_all(self, value: u32) -> Self {
+        self.padding(Spacing::all(value))
+    }
+
+    pub fn padding_axis(self, horizontal: u32, vertical: u32) -> Self {
+        self.padding(Spacing::axis(horizontal, vertical))
+    }
+
+    pub fn text(mut self, text: Text) -> Self {
+        self.content = Some(Content::Text(text));
+        self
+    }
+
+    pub fn rich_text(mut self, text: RichText) -> Self {
+        self.content = Some(Content::RichText(text));
+        self
+    }
+
+    pub fn width_value(&self) -> Length {
+        self.width
+    }
+
+    pub fn height_value(&self) -> Length {
+        self.height
+    }
+
+    pub fn direction_value(&self) -> Direction {
+        self.direction
+    }
+
+    pub fn padding_value(&self) -> Spacing {
+        self.padding
+    }
+
+    pub fn gap_value(&self) -> u32 {
+        self.gap
+    }
+
+    pub fn style_ref(&self) -> &Style {
+        &self.style
+    }
+
+    pub fn corner_radius_value(&self) -> u32 {
+        self.style.corner_radius
+    }
+
     pub fn begin(_: Bounds) -> Self {
         Self::default()
     }
@@ -315,7 +566,8 @@ impl Rect {
         ui
     }
 
-    pub fn child(mut self, child: Rect) -> Self {
+    pub fn child<I: IntoChild>(mut self, child: I) -> Self {
+        let child = child.into_child(&self);
         self.children.push(child);
         self
     }

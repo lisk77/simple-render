@@ -22,6 +22,20 @@ impl Default for ProgressBarStyle {
     }
 }
 
+impl ProgressBarStyle {
+    pub fn new() -> Self {
+        Self::default()
+    }
+    pub fn track(mut self, value: Style) -> Self {
+        self.track = value;
+        self
+    }
+    pub fn fill(mut self, value: Style) -> Self {
+        self.fill = value;
+        self
+    }
+}
+
 pub struct ProgressBar {
     value: f32,
     width: Length,
@@ -39,6 +53,11 @@ impl ProgressBar {
             height: Length::Px(8),
             style: ProgressBarStyle::default(),
         }
+    }
+
+    pub fn value(mut self, value: f32) -> Self {
+        self.value = value;
+        self
     }
 
     pub fn width(mut self, width: Length) -> Self {
@@ -66,13 +85,13 @@ impl ProgressBar {
             .width_px
             .map(|width| Length::Px(lerp_u32(0, width, value)))
             .unwrap_or_else(|| Length::Percent(value * 100.0));
-        Rect::new(RectLayout {
+        Rect::layout(RectLayout {
             width: self.width,
             height: self.height,
             style: self.style.track,
             ..RectLayout::default()
         })
-        .child(Rect::new(RectLayout {
+        .child(Rect::layout(RectLayout {
             width: fill_width,
             height: Length::Fill,
             style: self.style.fill,

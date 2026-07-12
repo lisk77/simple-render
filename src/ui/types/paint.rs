@@ -115,6 +115,10 @@ impl PaintTransform {
         translate_y: 0,
     };
 
+    pub const fn identity() -> Self {
+        Self::IDENTITY
+    }
+
     pub const fn new(scale: f32, translate_x: i32, translate_y: i32) -> Self {
         Self {
             scale,
@@ -151,6 +155,17 @@ impl PaintTransform {
 
     pub fn is_identity(self) -> bool {
         self.scale == 1.0 && self.translate_x == 0 && self.translate_y == 0
+    }
+
+    pub fn with_scale(mut self, scale: f32) -> Self {
+        self.scale = scale;
+        self
+    }
+
+    pub fn with_translate(mut self, translate_x: i32, translate_y: i32) -> Self {
+        self.translate_x = translate_x;
+        self.translate_y = translate_y;
+        self
     }
 }
 

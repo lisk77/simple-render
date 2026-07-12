@@ -37,6 +37,36 @@ impl Default for CheckboxStyle {
     }
 }
 
+impl CheckboxStyle {
+    pub fn new() -> Self {
+        Self::default()
+    }
+    pub fn box_normal(mut self, value: crate::Style) -> Self {
+        self.box_normal = value;
+        self
+    }
+    pub fn box_hovered(mut self, value: crate::Style) -> Self {
+        self.box_hovered = value;
+        self
+    }
+    pub fn box_pressed(mut self, value: crate::Style) -> Self {
+        self.box_pressed = value;
+        self
+    }
+    pub fn box_checked(mut self, value: crate::Style) -> Self {
+        self.box_checked = value;
+        self
+    }
+    pub fn text(mut self, value: TextStyle) -> Self {
+        self.text = value;
+        self
+    }
+    pub fn mark(mut self, value: impl Into<Paint>) -> Self {
+        self.mark = value.into();
+        self
+    }
+}
+
 pub struct Checkbox<A = ()> {
     id: Option<WidgetId>,
     label: Arc<str>,
@@ -64,6 +94,11 @@ impl Checkbox<()> {
 }
 
 impl<A> Checkbox<A> {
+    pub fn label(mut self, label: impl Into<Arc<str>>) -> Self {
+        self.label = label.into();
+        self
+    }
+
     pub fn id(mut self, id: impl Into<WidgetId>) -> Self {
         self.id = Some(id.into());
         self
@@ -71,6 +106,16 @@ impl<A> Checkbox<A> {
 
     pub fn checked(mut self, checked: bool) -> Self {
         self.checked = checked;
+        self
+    }
+
+    pub fn width(mut self, width: Length) -> Self {
+        self.width = width;
+        self
+    }
+
+    pub fn height(mut self, height: Length) -> Self {
+        self.height = height;
         self
     }
 
@@ -123,7 +168,7 @@ impl<A> Checkbox<A> {
             )
         };
 
-        let mut checkbox_box = Rect::new(RectLayout {
+        let mut checkbox_box = Rect::layout(RectLayout {
             width: Length::Px(20),
             height: Length::Px(20),
             style: box_style,
@@ -133,7 +178,7 @@ impl<A> Checkbox<A> {
             checkbox_box = checkbox_box.child(check_mark(self.style.mark.clone()));
         }
 
-        Rect::new(RectLayout {
+        Rect::layout(RectLayout {
             id: Some(id),
             width: self.width,
             height: self.height,
@@ -143,7 +188,7 @@ impl<A> Checkbox<A> {
             ..RectLayout::default()
         })
         .child(checkbox_box)
-        .child(Rect::new(RectLayout {
+        .child(Rect::layout(RectLayout {
             width: Length::Fit,
             height: Length::Fill,
             content: Some(Content::Text(Text {
@@ -158,7 +203,7 @@ impl<A> Checkbox<A> {
 }
 
 fn check_mark(color: Paint) -> Rect {
-    Rect::new(RectLayout {
+    Rect::layout(RectLayout {
         width: Length::Fill,
         height: Length::Fill,
         ..RectLayout::default()
@@ -171,7 +216,7 @@ fn check_mark(color: Paint) -> Rect {
 }
 
 fn mark_dot(left: u32, top: u32, color: Paint) -> Rect {
-    Rect::new(RectLayout {
+    Rect::layout(RectLayout {
         width: Length::Px(4),
         height: Length::Px(4),
         position: Position::Absolute,

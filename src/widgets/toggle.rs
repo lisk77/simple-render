@@ -22,6 +22,24 @@ impl Default for ToggleStyle {
     }
 }
 
+impl ToggleStyle {
+    pub fn new() -> Self {
+        Self::default()
+    }
+    pub fn track_off(mut self, value: crate::Style) -> Self {
+        self.track_off = value;
+        self
+    }
+    pub fn track_on(mut self, value: crate::Style) -> Self {
+        self.track_on = value;
+        self
+    }
+    pub fn knob(mut self, value: crate::Style) -> Self {
+        self.knob = value;
+        self
+    }
+}
+
 pub struct Toggle<A = ()> {
     id: Option<WidgetId>,
     value: bool,
@@ -92,7 +110,7 @@ impl<A> Toggle<A> {
             cx.mark_changed();
         }
 
-        Rect::new(RectLayout {
+        Rect::layout(RectLayout {
             id: Some(id),
             width: Length::Px(44),
             height: Length::Px(24),
@@ -104,7 +122,7 @@ impl<A> Toggle<A> {
             },
             ..RectLayout::default()
         })
-        .child(Rect::new(RectLayout {
+        .child(Rect::layout(RectLayout {
             width: Length::Px(18),
             height: Length::Px(18),
             position: crate::Position::Absolute,

@@ -60,6 +60,10 @@ pub struct Spacing {
 impl Spacing {
     pub const ZERO: Self = Self::all(0);
 
+    pub const fn new() -> Self {
+        Self::ZERO
+    }
+
     pub const fn all(value: u32) -> Self {
         Self {
             top: value,
@@ -76,6 +80,26 @@ impl Spacing {
             bottom: vertical,
             left: horizontal,
         }
+    }
+
+    pub const fn top(mut self, value: u32) -> Self {
+        self.top = value;
+        self
+    }
+
+    pub const fn right(mut self, value: u32) -> Self {
+        self.right = value;
+        self
+    }
+
+    pub const fn bottom(mut self, value: u32) -> Self {
+        self.bottom = value;
+        self
+    }
+
+    pub const fn left(mut self, value: u32) -> Self {
+        self.left = value;
+        self
     }
 }
 
@@ -95,6 +119,10 @@ impl Inset {
         left: None,
     };
 
+    pub const fn new() -> Self {
+        Self::ZERO
+    }
+
     pub const fn all(value: u32) -> Self {
         Self {
             top: Some(value),
@@ -111,6 +139,26 @@ impl Inset {
             bottom: Some(vertical),
             left: Some(horizontal),
         }
+    }
+
+    pub const fn top(mut self, value: u32) -> Self {
+        self.top = Some(value);
+        self
+    }
+
+    pub const fn right(mut self, value: u32) -> Self {
+        self.right = Some(value);
+        self
+    }
+
+    pub const fn bottom(mut self, value: u32) -> Self {
+        self.bottom = Some(value);
+        self
+    }
+
+    pub const fn left(mut self, value: u32) -> Self {
+        self.left = Some(value);
+        self
     }
 }
 
@@ -243,6 +291,119 @@ impl Default for Surface {
             exclusive_zone: options.exclusive_zone,
             keyboard_interactivity: options.keyboard_interactivity,
         }
+    }
+}
+
+impl Surface {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn namespace(mut self, namespace: impl Into<String>) -> Self {
+        self.namespace = namespace.into();
+        self
+    }
+
+    pub fn width(mut self, width: u32) -> Self {
+        self.width = width;
+        self
+    }
+
+    pub fn height(mut self, height: u32) -> Self {
+        self.height = height;
+        self
+    }
+
+    pub fn size(mut self, width: u32, height: u32) -> Self {
+        self.width = width;
+        self.height = height;
+        self
+    }
+
+    pub fn output(mut self, output: OutputTarget) -> Self {
+        self.output = Some(output);
+        self
+    }
+
+    pub fn clear_output(mut self) -> Self {
+        self.output = None;
+        self
+    }
+
+    pub fn layer(mut self, layer: Layer) -> Self {
+        self.layer = layer;
+        self
+    }
+
+    pub fn anchor(mut self, anchor: Anchor) -> Self {
+        self.anchor = anchor;
+        self
+    }
+
+    pub fn margins(
+        mut self,
+        margin_top: i32,
+        margin_right: i32,
+        margin_bottom: i32,
+        margin_left: i32,
+    ) -> Self {
+        self.margins = Margins {
+            top: margin_top,
+            right: margin_right,
+            bottom: margin_bottom,
+            left: margin_left,
+        };
+        self
+    }
+
+    pub fn margin_all(mut self, value: i32) -> Self {
+        self.margins = Margins {
+            top: value,
+            right: value,
+            bottom: value,
+            left: value,
+        };
+        self
+    }
+
+    pub fn margin_axis(mut self, horizontal: i32, vertical: i32) -> Self {
+        self.margins = Margins {
+            top: vertical,
+            right: horizontal,
+            bottom: vertical,
+            left: horizontal,
+        };
+        self
+    }
+
+    pub fn margin_top(mut self, top: i32) -> Self {
+        self.margins.top = top;
+        self
+    }
+
+    pub fn margin_right(mut self, right: i32) -> Self {
+        self.margins.right = right;
+        self
+    }
+
+    pub fn margin_bottom(mut self, bottom: i32) -> Self {
+        self.margins.bottom = bottom;
+        self
+    }
+
+    pub fn margin_left(mut self, left: i32) -> Self {
+        self.margins.left = left;
+        self
+    }
+
+    pub fn exclusive_zone(mut self, exclusive_zone: i32) -> Self {
+        self.exclusive_zone = exclusive_zone;
+        self
+    }
+
+    pub fn keyboard_interactivity(mut self, keyboard_interactivity: KeyboardInteractivity) -> Self {
+        self.keyboard_interactivity = keyboard_interactivity;
+        self
     }
 }
 

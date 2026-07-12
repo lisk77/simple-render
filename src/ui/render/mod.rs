@@ -52,6 +52,14 @@ pub struct FontCtxOptions {
 }
 
 impl FontCtxOptions {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn font_sources(mut self, fonts: impl IntoIterator<Item = FontSource>) -> Self {
+        self.sources = Some(fonts.into_iter().collect());
+        self
+    }
     pub fn system() -> Self {
         Self { sources: None }
     }

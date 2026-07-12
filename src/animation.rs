@@ -145,6 +145,16 @@ impl Animation {
         }
     }
 
+    pub const fn duration_ms(mut self, duration_ms: u32) -> Self {
+        self.duration_ms = duration_ms;
+        self
+    }
+
+    pub const fn easing(mut self, easing: Easing) -> Self {
+        self.easing = easing;
+        self
+    }
+
     pub fn progress(self, elapsed_ms: u32) -> f32 {
         if self.duration_ms == 0 {
             return 1.0;
@@ -186,6 +196,11 @@ impl VisualTransition {
             from_translate_y: 0,
             to_translate_y: 0,
         }
+    }
+
+    pub const fn animation(mut self, animation: Animation) -> Self {
+        self.animation = animation;
+        self
     }
 
     pub const fn fade(animation: Animation, from_opacity: f32, to_opacity: f32) -> Self {
@@ -386,6 +401,21 @@ impl BoundsTransition {
             from,
             to,
         }
+    }
+
+    pub const fn animation(mut self, animation: Animation) -> Self {
+        self.animation = animation;
+        self
+    }
+
+    pub const fn from(mut self, from: Bounds) -> Self {
+        self.from = from;
+        self
+    }
+
+    pub const fn to(mut self, to: Bounds) -> Self {
+        self.to = to;
+        self
     }
 
     pub fn frame(self, elapsed_ms: u32) -> BoundsTransitionFrame {
