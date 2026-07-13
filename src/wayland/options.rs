@@ -51,6 +51,13 @@ impl LayerOptions {
         self.height = height;
         self
     }
+    pub fn fullscreen(mut self) -> Self {
+        self.width = 0;
+        self.height = 0;
+        self.anchor = Anchor::Fill;
+        self.exclusive_zone = -1;
+        self
+    }
     pub fn output(mut self, value: OutputTarget) -> Self {
         self.output = Some(value);
         self
@@ -67,7 +74,8 @@ impl LayerOptions {
         self.anchor = value;
         self
     }
-    pub fn margin_all(mut self, value: i32) -> Self {
+    pub fn margin_all(mut self, value: impl Into<i32>) -> Self {
+        let value = value.into();
         self.margins = Margins {
             top: value,
             right: value,
@@ -76,7 +84,9 @@ impl LayerOptions {
         };
         self
     }
-    pub fn margin_axis(mut self, horizontal: i32, vertical: i32) -> Self {
+    pub fn margin_axis(mut self, horizontal: impl Into<i32>, vertical: impl Into<i32>) -> Self {
+        let horizontal = horizontal.into();
+        let vertical = vertical.into();
         self.margins = Margins {
             top: vertical,
             right: horizontal,
@@ -85,20 +95,20 @@ impl LayerOptions {
         };
         self
     }
-    pub fn margin_top(mut self, value: i32) -> Self {
-        self.margins.top = value;
+    pub fn margin_top(mut self, value: impl Into<i32>) -> Self {
+        self.margins.top = value.into();
         self
     }
-    pub fn margin_right(mut self, value: i32) -> Self {
-        self.margins.right = value;
+    pub fn margin_right(mut self, value: impl Into<i32>) -> Self {
+        self.margins.right = value.into();
         self
     }
-    pub fn margin_bottom(mut self, value: i32) -> Self {
-        self.margins.bottom = value;
+    pub fn margin_bottom(mut self, value: impl Into<i32>) -> Self {
+        self.margins.bottom = value.into();
         self
     }
-    pub fn margin_left(mut self, value: i32) -> Self {
-        self.margins.left = value;
+    pub fn margin_left(mut self, value: impl Into<i32>) -> Self {
+        self.margins.left = value.into();
         self
     }
     pub fn exclusive_zone(mut self, value: i32) -> Self {
@@ -111,14 +121,14 @@ impl LayerOptions {
     }
     pub fn show<R>(self, renderer: R) -> Result<()>
     where
-        R: Renderer + 'static,
+        R: CanvasRenderer + 'static,
     {
         run_inner(renderer, Some((DEFAULT_SURFACE_ID, self)), None, true)
     }
 
     pub fn show_with_commands<R>(self, renderer: R, receiver: RenderReceiver) -> Result<()>
     where
-        R: Renderer + 'static,
+        R: CanvasRenderer + 'static,
     {
         run_inner(
             renderer,

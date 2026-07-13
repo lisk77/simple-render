@@ -1,11 +1,8 @@
 use std::ops::RangeInclusive;
 
-use crate::{Inset, Length, Rect, RectLayout, Spacing, UiContext, WidgetId, lerp_u32};
+use crate::{ChangeEvent, ClickEvent, Element, Inset, Length, Listener, Rect, WidgetId, lerp_u32};
 
-use super::{
-    action::WidgetValueAction,
-    shared::{hex, rounded_fill},
-};
+use super::shared::{hex, rounded_fill};
 
 const KNOB_SIZE: u32 = 16;
 
@@ -99,13 +96,13 @@ impl<A> Slider<A> {
         }
     }
 
-    pub fn width(mut self, width: u32) -> Self {
-        self.width = width;
+    pub fn width(mut self, width: impl Into<crate::Pixels>) -> Self {
+        self.width = width.into().get();
         self
     }
 
-    pub fn height(mut self, height: Length) -> Self {
-        self.height = height;
+    pub fn height(mut self, height: impl Into<Length>) -> Self {
+        self.height = height.into();
         self
     }
 
@@ -118,102 +115,94 @@ impl<A> Slider<A> {
         self.style = style;
         self
     }
+}
 
-    pub fn build<S>(self, cx: &mut UiContext<'_, S>) -> Rect
-    where
-        A: WidgetValueAction<S, f32>,
-    {
-        self.build_with_value(cx).0
-    }
-
-    pub fn build_with_value<S>(self, cx: &mut UiContext<'_, S>) -> (Rect, f32)
-    where
-        A: WidgetValueAction<S, f32>,
-    {
-        let id = self.id.unwrap_or_else(|| WidgetId::from("slider"));
-        let interaction = cx.interaction(id.clone());
-        let mut value = self.value;
-        let mut changed = false;
+impl Slider<()> {
+    fn into_element_with(self, listener: Option<Listener<ChangeEvent<f32>>>) -> Element {
         let min = *self.range.start();
         let max = *self.range.end();
-        let knob_radius = KNOB_SIZE / 2;
-        let track_width = self.width.saturating_sub(KNOB_SIZE);
-        if cx.actions_enabled()
-            && interaction.pressed
-            && !self.disabled
-            && max > min
-            && let (Some((x, _)), Some(bounds)) = (
-                cx.input().pointer().position,
-                cx.input().pointer().pressed.as_ref().map(|hit| hit.bounds),
-            )
-        {
-            let track_left = f64::from(bounds.x.saturating_add(knob_radius));
-            let fraction = ((x - track_left) / f64::from(track_width.max(1))).clamp(0.0, 1.0);
-            let next = min + (max - min) * fraction as f32;
-            if (value - next).abs() > f32::EPSILON {
-                value = next;
-                changed = true;
-            }
-        }
-        if changed {
-            self.on_change.call(cx.state_mut(), value);
-            cx.mark_changed();
-        }
-
-        let value_fraction = if max > min {
-            ((value - min) / (max - min)).clamp(0.0, 1.0)
+        let fraction = if max > min {
+            ((self.value - min) / (max - min)).clamp(0.0, 1.0)
         } else {
             0.0
         };
-        let fill_width = lerp_u32(0, track_width, value_fraction);
-        let knob_left = lerp_u32(0, track_width, value_fraction);
+        let knob_radius = KNOB_SIZE / 2;
+        let track_width = self.width.saturating_sub(KNOB_SIZE);
+        let fill_width = lerp_u32(0, track_width, fraction);
+        let knob_left = lerp_u32(0, track_width, fraction);
+        let mut root = Rect::new()
+            .width_px(self.width)
+            .height(self.height)
+            .child(
+                Rect::new()
+                    .width_fill()
+                    .height_px(8)
+                    .absolute(Inset::new().top(8).left(knob_radius).right(knob_radius))
+                    .style(self.style.track),
+            )
+            .child(
+                Rect::new()
+                    .width_px(fill_width)
+                    .height_px(8)
+                    .absolute(Inset::new().top(8).left(knob_radius))
+                    .style(self.style.fill),
+            )
+            .child(
+                Rect::new()
+                    .size_px(KNOB_SIZE, KNOB_SIZE)
+                    .absolute(Inset::new().top(4).left(knob_left))
+                    .style(self.style.knob),
+            );
+        if let Some(id) = self.id {
+            root = root.id(id);
+        }
+        if !self.disabled
+            && max > min
+            && let Some(listener) = listener
+        {
+            root =
+                root.child(Rect::new().size_fill().absolute_all(0).on_drag(
+                    Listener::<ClickEvent>::new(move |event| {
+                        let left = f64::from(event.bounds.x.saturating_add(knob_radius));
+                        let fraction =
+                            ((event.x - left) / f64::from(track_width.max(1))).clamp(0.0, 1.0);
+                        listener.call(&ChangeEvent {
+                            value: min + (max - min) * fraction as f32,
+                        });
+                    }),
+                ));
+        }
+        root.into()
+    }
+}
 
-        (
-            Rect::layout(RectLayout {
-                id: Some(id),
-                width: Length::Px(self.width),
-                height: self.height,
-                padding: Spacing::ZERO,
-                ..RectLayout::default()
-            })
-            .child(Rect::layout(RectLayout {
-                width: Length::Fill,
-                height: Length::Px(8),
-                position: crate::Position::Absolute,
-                inset: Inset {
-                    top: Some(8),
-                    left: Some(knob_radius),
-                    right: Some(knob_radius),
-                    ..Inset::ZERO
-                },
-                style: self.style.track,
-                ..RectLayout::default()
-            }))
-            .child(Rect::layout(RectLayout {
-                width: Length::Px(fill_width),
-                height: Length::Px(8),
-                position: crate::Position::Absolute,
-                inset: Inset {
-                    top: Some(8),
-                    left: Some(knob_radius),
-                    ..Inset::ZERO
-                },
-                style: self.style.fill,
-                ..RectLayout::default()
-            }))
-            .child(Rect::layout(RectLayout {
-                width: Length::Px(KNOB_SIZE),
-                height: Length::Px(KNOB_SIZE),
-                position: crate::Position::Absolute,
-                inset: Inset {
-                    top: Some(4),
-                    left: Some(knob_left),
-                    ..Inset::ZERO
-                },
-                style: self.style.knob,
-                ..RectLayout::default()
-            })),
+impl From<Slider<()>> for Element {
+    fn from(value: Slider<()>) -> Self {
+        value.into_element_with(None)
+    }
+}
+impl From<Slider<Listener<ChangeEvent<f32>>>> for Element {
+    fn from(value: Slider<Listener<ChangeEvent<f32>>>) -> Self {
+        let Slider {
+            id,
+            range,
             value,
-        )
+            on_change,
+            width,
+            height,
+            disabled,
+            style,
+        } = value;
+        Slider {
+            id,
+            range,
+            value,
+            on_change: (),
+            width,
+            height,
+            disabled,
+            style,
+        }
+        .into_element_with(Some(on_change))
     }
 }

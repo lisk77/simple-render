@@ -82,8 +82,8 @@ impl Border {
         Self::default()
     }
 
-    pub fn width(mut self, width: u32) -> Self {
-        self.width = width;
+    pub fn width(mut self, width: impl Into<Pixels>) -> Self {
+        self.width = width.into().get();
         self
     }
 
@@ -145,8 +145,8 @@ impl Style {
         self
     }
 
-    pub fn corner_radius(mut self, radius: u32) -> Self {
-        self.corner_radius = radius;
+    pub fn corner_radius(mut self, radius: impl Into<Pixels>) -> Self {
+        self.corner_radius = radius.into().get();
         self
     }
 

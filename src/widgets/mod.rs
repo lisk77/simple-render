@@ -1,4 +1,3 @@
-mod action;
 mod button;
 mod checkbox;
 mod progress_bar;
@@ -6,7 +5,6 @@ mod shared;
 mod slider;
 mod toggle;
 
-pub use action::{WidgetAction, WidgetValueAction};
 pub use button::{Button, ButtonStyle};
 pub use checkbox::{Checkbox, CheckboxStyle};
 pub use progress_bar::{ProgressBar, ProgressBarStyle};

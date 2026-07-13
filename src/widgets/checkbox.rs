@@ -1,14 +1,11 @@
 use std::sync::Arc;
 
 use crate::{
-    Align, Content, Direction, Inset, Length, Paint, Position, Rect, RectLayout, Style, Text,
-    TextStyle, UiContext, WidgetId,
+    Align, ChangeEvent, ClickEvent, Direction, Element, Inset, Length, Listener, Paint, Position,
+    Rect, RectLayout, Style, Text, TextStyle, WidgetId,
 };
 
-use super::{
-    action::WidgetValueAction,
-    shared::{hex, interaction_style, rounded_fill},
-};
+use super::shared::{hex, rounded_fill};
 
 #[derive(Clone, Debug)]
 pub struct CheckboxStyle {
@@ -18,6 +15,85 @@ pub struct CheckboxStyle {
     pub box_checked: crate::Style,
     pub text: TextStyle,
     pub mark: Paint,
+}
+
+impl Checkbox<()> {
+    fn into_element_with(self, listener: Option<Listener<ChangeEvent<bool>>>) -> Element {
+        let mut checkbox_box = Rect::new().size_px(20, 20).style(if self.checked {
+            self.style.box_checked.clone()
+        } else {
+            self.style.box_normal.clone()
+        });
+        if self.checked {
+            checkbox_box = checkbox_box.child(check_mark(self.style.mark.clone()));
+        }
+        let mut root = Rect::new()
+            .width(self.width)
+            .height(self.height)
+            .direction(Direction::Row)
+            .align(Align::Center)
+            .gap(8)
+            .child(checkbox_box)
+            .child(
+                Rect::new().width(Length::Fit).height_fill().text(
+                    Text::new(self.label)
+                        .style(self.style.text)
+                        .vertical_align_center(),
+                ),
+            );
+        if !self.checked && !self.disabled {
+            root = root.interaction_child_styles(
+                0,
+                self.style.box_hovered.clone(),
+                self.style.box_pressed.clone(),
+                self.style.box_normal.clone(),
+            );
+        }
+        if let Some(id) = self.id {
+            root = root.id(id);
+        }
+        if !self.disabled
+            && let Some(listener) = listener
+        {
+            let checked = self.checked;
+            root = root.on_click(Listener::<ClickEvent>::new(move |_| {
+                listener.call(&ChangeEvent { value: !checked });
+            }));
+        }
+        root.into()
+    }
+}
+
+impl From<Checkbox<()>> for Element {
+    fn from(value: Checkbox<()>) -> Self {
+        value.into_element_with(None)
+    }
+}
+
+impl From<Checkbox<Listener<ChangeEvent<bool>>>> for Element {
+    fn from(value: Checkbox<Listener<ChangeEvent<bool>>>) -> Self {
+        let Checkbox {
+            id,
+            label,
+            checked,
+            on_change,
+            width,
+            height,
+            disabled,
+            style,
+        } = value;
+        Checkbox {
+            id,
+            label,
+            checked,
+            on_change: (),
+            width,
+            height,
+            disabled,
+            style,
+        }
+        .into_element_with(Some(on_change))
+    }
 }
 
 impl Default for CheckboxStyle {
@@ -109,13 +185,13 @@ impl<A> Checkbox<A> {
         self
     }
 
-    pub fn width(mut self, width: Length) -> Self {
-        self.width = width;
+    pub fn width(mut self, width: impl Into<Length>) -> Self {
+        self.width = width.into();
         self
     }
 
-    pub fn height(mut self, height: Length) -> Self {
-        self.height = height;
+    pub fn height(mut self, height: impl Into<Length>) -> Self {
+        self.height = height.into();
         self
     }
 
@@ -140,65 +216,6 @@ impl<A> Checkbox<A> {
     pub fn style(mut self, style: CheckboxStyle) -> Self {
         self.style = style;
         self
-    }
-
-    pub fn build<S>(self, cx: &mut UiContext<'_, S>) -> Rect
-    where
-        A: WidgetValueAction<S, bool>,
-    {
-        let id = self.id.unwrap_or_else(|| WidgetId::new(self.label.clone()));
-        let interaction = cx.interaction(id.clone());
-        let mut checked = self.checked;
-        if interaction.clicked && !self.disabled && cx.consume_click(&id) {
-            checked = !checked;
-            self.on_change.call(cx.state_mut(), checked);
-            cx.mark_changed();
-        }
-
-        let box_style = if checked {
-            self.style.box_checked.clone()
-        } else {
-            interaction_style(
-                interaction,
-                self.disabled,
-                &self.style.box_normal,
-                &self.style.box_hovered,
-                &self.style.box_pressed,
-                &self.style.box_normal,
-            )
-        };
-
-        let mut checkbox_box = Rect::layout(RectLayout {
-            width: Length::Px(20),
-            height: Length::Px(20),
-            style: box_style,
-            ..RectLayout::default()
-        });
-        if checked {
-            checkbox_box = checkbox_box.child(check_mark(self.style.mark.clone()));
-        }
-
-        Rect::layout(RectLayout {
-            id: Some(id),
-            width: self.width,
-            height: self.height,
-            direction: Direction::Row,
-            align: Align::Center,
-            gap: 8,
-            ..RectLayout::default()
-        })
-        .child(checkbox_box)
-        .child(Rect::layout(RectLayout {
-            width: Length::Fit,
-            height: Length::Fill,
-            content: Some(Content::Text(Text {
-                content: self.label,
-                style: self.style.text,
-                vertical_align: Align::Center,
-                ..Text::default()
-            })),
-            ..RectLayout::default()
-        }))
     }
 }
 

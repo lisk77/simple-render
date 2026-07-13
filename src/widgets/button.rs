@@ -1,12 +1,9 @@
 use std::sync::Arc;
 
+use super::shared::{hex, rounded_fill};
 use crate::{
-    Align, Content, Length, Paint, Rect, RectLayout, Spacing, Text, TextStyle, UiContext, WidgetId,
-};
-
-use super::{
-    action::WidgetAction,
-    shared::{hex, interaction_style, rounded_fill},
+    Align, ClickEvent, Element, Length, Listener, Paint, Pixels, Rect, Spacing, Text, TextStyle,
+    WidgetId,
 };
 
 #[derive(Clone, Debug)]
@@ -61,28 +58,32 @@ impl ButtonStyle {
         self.text = value;
         self
     }
-    pub fn padding_all(mut self, value: u32) -> Self {
-        self.padding = Spacing::all(value);
+    pub fn padding_all(mut self, value: impl Into<crate::Pixels>) -> Self {
+        self.padding = Spacing::all(value.into().get());
         self
     }
-    pub fn padding_axis(mut self, horizontal: u32, vertical: u32) -> Self {
-        self.padding = Spacing::axis(horizontal, vertical);
+    pub fn padding_axis(
+        mut self,
+        horizontal: impl Into<crate::Pixels>,
+        vertical: impl Into<crate::Pixels>,
+    ) -> Self {
+        self.padding = Spacing::axis(horizontal.into().get(), vertical.into().get());
         self
     }
-    pub fn padding_top(mut self, value: u32) -> Self {
-        self.padding.top = value;
+    pub fn padding_top(mut self, value: impl Into<crate::Pixels>) -> Self {
+        self.padding.top = value.into().get();
         self
     }
-    pub fn padding_right(mut self, value: u32) -> Self {
-        self.padding.right = value;
+    pub fn padding_right(mut self, value: impl Into<crate::Pixels>) -> Self {
+        self.padding.right = value.into().get();
         self
     }
-    pub fn padding_bottom(mut self, value: u32) -> Self {
-        self.padding.bottom = value;
+    pub fn padding_bottom(mut self, value: impl Into<crate::Pixels>) -> Self {
+        self.padding.bottom = value.into().get();
         self
     }
-    pub fn padding_left(mut self, value: u32) -> Self {
-        self.padding.left = value;
+    pub fn padding_left(mut self, value: impl Into<crate::Pixels>) -> Self {
+        self.padding.left = value.into().get();
         self
     }
 }
@@ -94,6 +95,8 @@ pub struct Button<A = ()> {
     height: Length,
     disabled: bool,
     style: ButtonStyle,
+    text_align: Align,
+    text_vertical_align: Align,
     on_click: A,
 }
 
@@ -107,6 +110,8 @@ impl Button<()> {
             height: Length::Px(36),
             disabled: false,
             style: ButtonStyle::default(),
+            text_align: Align::Center,
+            text_vertical_align: Align::Center,
             on_click: (),
         }
     }
@@ -123,13 +128,51 @@ impl<A> Button<A> {
         self
     }
 
-    pub fn width(mut self, width: Length) -> Self {
-        self.width = width;
+    pub fn width(mut self, width: impl Into<Length>) -> Self {
+        self.width = width.into();
         self
     }
 
-    pub fn height(mut self, height: Length) -> Self {
-        self.height = height;
+    pub fn height(mut self, height: impl Into<Length>) -> Self {
+        self.height = height.into();
+        self
+    }
+
+    pub fn align(mut self, align: Align) -> Self {
+        self.text_align = align;
+        self
+    }
+
+    pub fn align_center(self) -> Self {
+        self.align(Align::Center)
+    }
+
+    pub fn vertical_align(mut self, align: Align) -> Self {
+        self.text_vertical_align = align;
+        self
+    }
+
+    pub fn vertical_align_center(self) -> Self {
+        self.vertical_align(Align::Center)
+    }
+
+    pub fn color(mut self, color: impl Into<Paint>) -> Self {
+        self.style.text.color = color.into();
+        self
+    }
+
+    pub fn size(mut self, size: impl Into<Pixels>) -> Self {
+        self.style.text.size = size.into().get();
+        self
+    }
+
+    pub fn bold(mut self) -> Self {
+        self.style.text.bold = true;
+        self
+    }
+
+    pub fn italic(mut self) -> Self {
+        self.style.text.italic = true;
         self
     }
 
@@ -151,44 +194,79 @@ impl<A> Button<A> {
             height: self.height,
             disabled: self.disabled,
             style: self.style,
+            text_align: self.text_align,
+            text_vertical_align: self.text_vertical_align,
             on_click,
         }
     }
+}
 
-    pub fn build<S>(self, cx: &mut UiContext<'_, S>) -> Rect
-    where
-        A: WidgetAction<S>,
-    {
-        let id = self.id.unwrap_or_else(|| WidgetId::new(self.label.clone()));
-        let interaction = cx.interaction(id.clone());
-        if interaction.clicked && !self.disabled && cx.consume_click(&id) {
-            self.on_click.call(cx.state_mut());
-            cx.mark_changed();
+impl Button<()> {
+    fn into_element_with(self, listener: Option<Listener<ClickEvent>>) -> Element {
+        let id = self.id;
+        let base_style = if self.disabled {
+            self.style.disabled.clone()
+        } else {
+            self.style.normal
+        };
+        let mut rect = Rect::new()
+            .width(self.width)
+            .height(self.height)
+            .padding(self.style.padding)
+            .style(base_style);
+        if !self.disabled {
+            rect = rect.interaction_styles(
+                self.style.hovered,
+                self.style.pressed,
+                self.style.disabled,
+            );
         }
-
-        let style = interaction_style(
-            interaction,
-            self.disabled,
-            &self.style.normal,
-            &self.style.hovered,
-            &self.style.pressed,
-            &self.style.disabled,
+        rect = rect.text(
+            Text::new(self.label)
+                .style(self.style.text)
+                .align(self.text_align)
+                .vertical_align(self.text_vertical_align),
         );
+        if let Some(id) = id {
+            rect = rect.id(id);
+        }
+        if let Some(listener) = listener {
+            rect = rect.on_click(listener);
+        }
+        rect.into()
+    }
+}
 
-        Rect::layout(RectLayout {
-            id: Some(id),
-            width: self.width,
-            height: self.height,
-            padding: self.style.padding,
+impl From<Button<()>> for Element {
+    fn from(button: Button<()>) -> Self {
+        button.into_element_with(None)
+    }
+}
+
+impl From<Button<Listener<ClickEvent>>> for Element {
+    fn from(button: Button<Listener<ClickEvent>>) -> Self {
+        let Button {
+            id,
+            label,
+            width,
+            height,
+            disabled,
             style,
-            content: Some(Content::Text(Text {
-                content: self.label,
-                style: self.style.text,
-                align: Align::Center,
-                vertical_align: Align::Center,
-                ..Text::default()
-            })),
-            ..RectLayout::default()
-        })
+            text_align,
+            text_vertical_align,
+            on_click,
+        } = button;
+        Button {
+            id,
+            label,
+            width,
+            height,
+            disabled,
+            style,
+            text_align,
+            text_vertical_align,
+            on_click: (),
+        }
+        .into_element_with(Some(on_click))
     }
 }

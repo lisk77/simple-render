@@ -1,9 +1,6 @@
-use crate::{Inset, Length, Rect, RectLayout, Spacing, UiContext, WidgetId};
+use crate::{ChangeEvent, ClickEvent, Element, Inset, Listener, Rect, WidgetId};
 
-use super::{
-    action::WidgetValueAction,
-    shared::{hex, rounded_fill},
-};
+use super::shared::{hex, rounded_fill};
 
 #[derive(Clone, Debug)]
 pub struct ToggleStyle {
@@ -96,51 +93,65 @@ impl<A> Toggle<A> {
         self.style = style;
         self
     }
+}
 
-    pub fn build<S>(self, cx: &mut UiContext<'_, S>) -> Rect
-    where
-        A: WidgetValueAction<S, bool>,
-    {
-        let id = self.id.unwrap_or_else(|| WidgetId::from("toggle"));
-        let interaction = cx.interaction(id.clone());
-        let mut on = self.value;
-        if interaction.clicked && !self.disabled && cx.consume_click(&id) {
-            on = !on;
-            self.on_change.call(cx.state_mut(), on);
-            cx.mark_changed();
-        }
-
-        Rect::layout(RectLayout {
-            id: Some(id),
-            width: Length::Px(44),
-            height: Length::Px(24),
-            padding: Spacing::all(3),
-            style: if on {
+impl Toggle<()> {
+    fn into_element_with(self, listener: Option<Listener<ChangeEvent<bool>>>) -> Element {
+        let mut root = Rect::new()
+            .size_px(44, 24)
+            .padding_all(3)
+            .style(if self.value {
                 self.style.track_on
             } else {
                 self.style.track_off
-            },
-            ..RectLayout::default()
-        })
-        .child(Rect::layout(RectLayout {
-            width: Length::Px(18),
-            height: Length::Px(18),
-            position: crate::Position::Absolute,
-            inset: if on {
-                Inset {
-                    top: Some(3),
-                    right: Some(3),
-                    ..Inset::ZERO
-                }
-            } else {
-                Inset {
-                    top: Some(3),
-                    left: Some(3),
-                    ..Inset::ZERO
-                }
-            },
-            style: self.style.knob,
-            ..RectLayout::default()
-        }))
+            })
+            .child(
+                Rect::new()
+                    .size_px(18, 18)
+                    .position(crate::Position::Absolute)
+                    .inset(if self.value {
+                        Inset::new().top(3).right(3)
+                    } else {
+                        Inset::new().top(3).left(3)
+                    })
+                    .style(self.style.knob),
+            );
+        if let Some(id) = self.id {
+            root = root.id(id);
+        }
+        if !self.disabled
+            && let Some(listener) = listener
+        {
+            let value = self.value;
+            root = root.on_click(Listener::<ClickEvent>::new(move |_| {
+                listener.call(&ChangeEvent { value: !value })
+            }));
+        }
+        root.into()
+    }
+}
+
+impl From<Toggle<()>> for Element {
+    fn from(value: Toggle<()>) -> Self {
+        value.into_element_with(None)
+    }
+}
+impl From<Toggle<Listener<ChangeEvent<bool>>>> for Element {
+    fn from(value: Toggle<Listener<ChangeEvent<bool>>>) -> Self {
+        let Toggle {
+            id,
+            value: current,
+            on_change,
+            disabled,
+            style,
+        } = value;
+        Toggle {
+            id,
+            value: current,
+            on_change: (),
+            disabled,
+            style,
+        }
+        .into_element_with(Some(on_change))
     }
 }

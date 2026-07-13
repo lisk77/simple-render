@@ -8,13 +8,16 @@ use cosmic_text::{
 
 use crate::input::WidgetId;
 use crate::wayland::{
-    self, Anchor, Canvas, DamageRect, FrameAction, KeyboardInteractivity, Layer, LayerOptions,
-    Margins, OutputTarget, RenderContext, Renderer, SurfaceId,
+    self, Anchor, Canvas, CanvasRenderer, DamageRect, FrameAction, KeyboardInteractivity, Layer,
+    LayerOptions, Margins, OutputTarget, RenderContext, SurfaceId,
 };
 
 mod render;
 mod types;
 
 pub use cosmic_text::fontdb::Source as FontSource;
-pub use render::{FontCtx, FontCtxOptions, LazyFontCtx, Rect, Ui};
+pub use render::{
+    ChangeEvent, ClickEvent, Context, FontCtx, FontCtxOptions, LazyFontCtx, Listener, Rect, Render,
+    Ui,
+};
 pub use types::*;

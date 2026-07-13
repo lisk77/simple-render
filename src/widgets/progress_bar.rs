@@ -1,4 +1,4 @@
-use crate::{GradientDirection, Length, Paint, Rect, RectLayout, Style, lerp_u32};
+use crate::{Element, GradientDirection, Length, Paint, Rect, RectLayout, Style, lerp_u32};
 
 use super::shared::{hex, rounded_fill};
 
@@ -60,7 +60,8 @@ impl ProgressBar {
         self
     }
 
-    pub fn width(mut self, width: Length) -> Self {
+    pub fn width(mut self, width: impl Into<Length>) -> Self {
+        let width = width.into();
         self.width_px = match width {
             Length::Px(width) => Some(width),
             _ => None,
@@ -69,8 +70,8 @@ impl ProgressBar {
         self
     }
 
-    pub fn height(mut self, height: Length) -> Self {
-        self.height = height;
+    pub fn height(mut self, height: impl Into<Length>) -> Self {
+        self.height = height.into();
         self
     }
 
@@ -97,5 +98,11 @@ impl ProgressBar {
             style: self.style.fill,
             ..RectLayout::default()
         }))
+    }
+}
+
+impl From<ProgressBar> for Element {
+    fn from(value: ProgressBar) -> Self {
+        value.build().into()
     }
 }

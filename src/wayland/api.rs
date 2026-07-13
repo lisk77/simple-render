@@ -364,7 +364,7 @@ pub struct RenderContext {
     pub repaint: Option<Bounds>,
 }
 
-pub trait Renderer: 'static {
+pub trait CanvasRenderer: 'static {
     fn draw(&mut self, canvas: &mut Canvas<'_>, context: RenderContext) -> FrameAction;
 
     fn draw_surface(
@@ -409,7 +409,7 @@ pub trait Renderer: 'static {
     }
 }
 
-impl<F> Renderer for F
+impl<F> CanvasRenderer for F
 where
     F: for<'borrow, 'canvas> FnMut(&'borrow mut Canvas<'canvas>, RenderContext) -> FrameAction
         + 'static,

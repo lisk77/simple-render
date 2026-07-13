@@ -1,5 +1,42 @@
 use super::*;
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct Pixels(u32);
+
+impl Pixels {
+    pub const fn new(value: u32) -> Self {
+        Self(value)
+    }
+    pub const fn get(self) -> u32 {
+        self.0
+    }
+}
+
+impl From<u32> for Pixels {
+    fn from(value: u32) -> Self {
+        Self(value)
+    }
+}
+impl From<Pixels> for u32 {
+    fn from(value: Pixels) -> Self {
+        value.0
+    }
+}
+impl From<Pixels> for i32 {
+    fn from(value: Pixels) -> Self {
+        value.0.min(i32::MAX as u32) as i32
+    }
+}
+
+pub trait PixelsExt {
+    fn px(self) -> Pixels;
+}
+impl PixelsExt for u32 {
+    fn px(self) -> Pixels {
+        Pixels(self)
+    }
+}
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Direction {
     #[default]
@@ -46,6 +83,12 @@ impl Length {
 
     pub const fn percent(value: f32) -> Self {
         Self::Percent(value)
+    }
+}
+
+impl From<Pixels> for Length {
+    fn from(value: Pixels) -> Self {
+        Self::Px(value.get())
     }
 }
 
@@ -304,19 +347,27 @@ impl Surface {
         self
     }
 
-    pub fn width(mut self, width: u32) -> Self {
-        self.width = width;
+    pub fn width(mut self, width: impl Into<Pixels>) -> Self {
+        self.width = width.into().get();
         self
     }
 
-    pub fn height(mut self, height: u32) -> Self {
-        self.height = height;
+    pub fn height(mut self, height: impl Into<Pixels>) -> Self {
+        self.height = height.into().get();
         self
     }
 
-    pub fn size(mut self, width: u32, height: u32) -> Self {
-        self.width = width;
-        self.height = height;
+    pub fn size(mut self, width: impl Into<Pixels>, height: impl Into<Pixels>) -> Self {
+        self.width = width.into().get();
+        self.height = height.into().get();
+        self
+    }
+
+    pub fn fullscreen(mut self) -> Self {
+        self.width = 0;
+        self.height = 0;
+        self.anchor = Anchor::Fill;
+        self.exclusive_zone = -1;
         self
     }
 
@@ -342,21 +393,22 @@ impl Surface {
 
     pub fn margins(
         mut self,
-        margin_top: i32,
-        margin_right: i32,
-        margin_bottom: i32,
-        margin_left: i32,
+        margin_top: impl Into<i32>,
+        margin_right: impl Into<i32>,
+        margin_bottom: impl Into<i32>,
+        margin_left: impl Into<i32>,
     ) -> Self {
         self.margins = Margins {
-            top: margin_top,
-            right: margin_right,
-            bottom: margin_bottom,
-            left: margin_left,
+            top: margin_top.into(),
+            right: margin_right.into(),
+            bottom: margin_bottom.into(),
+            left: margin_left.into(),
         };
         self
     }
 
-    pub fn margin_all(mut self, value: i32) -> Self {
+    pub fn margin_all(mut self, value: impl Into<i32>) -> Self {
+        let value = value.into();
         self.margins = Margins {
             top: value,
             right: value,
@@ -366,7 +418,9 @@ impl Surface {
         self
     }
 
-    pub fn margin_axis(mut self, horizontal: i32, vertical: i32) -> Self {
+    pub fn margin_axis(mut self, horizontal: impl Into<i32>, vertical: impl Into<i32>) -> Self {
+        let horizontal = horizontal.into();
+        let vertical = vertical.into();
         self.margins = Margins {
             top: vertical,
             right: horizontal,
@@ -376,23 +430,23 @@ impl Surface {
         self
     }
 
-    pub fn margin_top(mut self, top: i32) -> Self {
-        self.margins.top = top;
+    pub fn margin_top(mut self, top: impl Into<i32>) -> Self {
+        self.margins.top = top.into();
         self
     }
 
-    pub fn margin_right(mut self, right: i32) -> Self {
-        self.margins.right = right;
+    pub fn margin_right(mut self, right: impl Into<i32>) -> Self {
+        self.margins.right = right.into();
         self
     }
 
-    pub fn margin_bottom(mut self, bottom: i32) -> Self {
-        self.margins.bottom = bottom;
+    pub fn margin_bottom(mut self, bottom: impl Into<i32>) -> Self {
+        self.margins.bottom = bottom.into();
         self
     }
 
-    pub fn margin_left(mut self, left: i32) -> Self {
-        self.margins.left = left;
+    pub fn margin_left(mut self, left: impl Into<i32>) -> Self {
+        self.margins.left = left.into();
         self
     }
 
@@ -404,6 +458,11 @@ impl Surface {
     pub fn keyboard_interactivity(mut self, keyboard_interactivity: KeyboardInteractivity) -> Self {
         self.keyboard_interactivity = keyboard_interactivity;
         self
+    }
+
+    pub fn run<R: crate::Render>(self, state: R) -> crate::Result<()> {
+        let options: LayerOptions = self.into();
+        options.show(crate::ui::render::ManagedRenderer::new(state))
     }
 }
 
